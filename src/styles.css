@@ -91,6 +91,10 @@ body.xr-active #panel::after {
   justify-content: space-between;
   gap: 0.75rem;
 }
+.diagnostics-actions {
+  display: flex;
+  gap: 0.45rem;
+}
 .diagnostics h2 {
   margin: 0;
   color: #bfdbfe;
@@ -133,4 +137,82 @@ body.xr-active #panel::after {
 @media (max-width: 640px) {
   #panel { font-size: 0.9rem; }
   #qrVideo { width: 9rem; }
+}
+
+.move-controls {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.8rem;
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  border-radius: 1rem;
+  background: rgba(2, 6, 23, 0.42);
+}
+.move-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: #bae6fd;
+  font-weight: 800;
+}
+.move-header output {
+  color: #e0f2fe;
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.range-row.compact {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.6rem;
+  font-size: 0.86rem;
+}
+.range-row.compact label { color: #cbd5e1; font-weight: 700; }
+#moveStepValue { min-width: 3.2rem; text-align: right; font-variant-numeric: tabular-nums; }
+.gizmo-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+.gizmo-buttons button {
+  min-height: 2.75rem;
+  padding: 0.6rem 0.35rem;
+  color: #020617;
+  box-shadow: inset 0 -0.16rem 0 rgba(2, 6, 23, 0.22);
+}
+.gizmo-buttons .axis-x { background: #f87171; }
+.gizmo-buttons .axis-y { background: #4ade80; }
+.gizmo-buttons .axis-z { background: #60a5fa; }
+body.xr-active .move-controls {
+  border-color: rgba(134, 239, 172, 0.5);
+  background: rgba(2, 6, 23, 0.62);
+}
+.test-controls {
+  border: 1px solid rgba(250, 204, 21, 0.28);
+  border-radius: 1rem;
+  padding: 0.8rem;
+  background: rgba(113, 63, 18, 0.2);
+}
+.test-controls > label {
+  color: #fde68a;
+}
+.test-controls button {
+  background: #facc15;
+  color: #1f1300;
+}
+.test-controls #clickDesktopTarget:disabled {
+  background: #64748b;
+  color: #e2e8f0;
+}
+body.desktop-test-active #scene {
+  cursor: crosshair;
+}
+body.desktop-test-active #panel {
+  border-color: rgba(250, 204, 21, 0.48);
+}
+
+@media (max-width: 640px) {
+  .move-header { display: grid; }
+  .move-header output { text-align: left; }
 }

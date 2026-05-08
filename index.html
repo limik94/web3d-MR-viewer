@@ -33,11 +33,43 @@
           <button id="exitAr" class="danger-ar" type="button" hidden>AR 종료</button>
         </div>
 
+        <div class="control-group test-controls" aria-label="PC simulation test">
+          <label>PC 테스트</label>
+          <div class="button-row">
+            <button id="toggleDesktopTest" type="button">3D 메뉴 테스트 켜기</button>
+            <button id="clickDesktopTarget" type="button" disabled>가리킨 버튼 실행</button>
+          </div>
+          <button id="runWorldUiSelfTest" type="button">3D 메뉴 상태 로그 출력</button>
+          <p class="hint">
+            PC 브라우저에서는 테스트를 켠 뒤 화면의 3D 메뉴와 AR DEBUG HUD를 보며 손 ray 조작을 확인합니다.
+          </p>
+        </div>
+
         <div class="control-group">
           <label for="modelScale">모델 크기</label>
           <div class="range-row">
             <input id="modelScale" type="range" min="0.05" max="3" step="0.01" value="0.45" />
             <output id="scaleValue" for="modelScale">0.45x</output>
+          </div>
+          <div class="move-controls" aria-label="모델 위치 이동">
+            <div class="move-header">
+              <span>AR 위치 이동</span>
+              <output id="modelPosition">x=0.000, y=-0.250, z=-1.100</output>
+            </div>
+            <div class="range-row compact">
+              <label for="moveStep">이동 간격</label>
+              <input id="moveStep" type="range" min="0.01" max="0.25" step="0.01" value="0.05" />
+              <output id="moveStepValue" for="moveStep">0.05m</output>
+            </div>
+            <div class="gizmo-buttons" aria-label="XYZ 이동 버튼">
+              <button type="button" class="axis-x" data-move-axis="x" data-move-direction="-1">X−</button>
+              <button type="button" class="axis-x" data-move-axis="x" data-move-direction="1">X+</button>
+              <button type="button" class="axis-y" data-move-axis="y" data-move-direction="-1">Y−</button>
+              <button type="button" class="axis-y" data-move-axis="y" data-move-direction="1">Y+</button>
+              <button type="button" class="axis-z" data-move-axis="z" data-move-direction="-1">Z−</button>
+              <button type="button" class="axis-z" data-move-axis="z" data-move-direction="1">Z+</button>
+            </div>
+            <p class="hint">AR 모드에서는 카메라 앞에 손/컨트롤러 ray로 누르는 3D 이동 패널과 AR DEBUG HUD가 함께 표시됩니다.</p>
           </div>
           <button id="resetModel" type="button">모델 초기 위치로 재배치</button>
         </div>
@@ -63,7 +95,10 @@
         <section class="diagnostics" aria-label="Diagnostics">
           <div class="diagnostics-header">
             <h2>진단 로그</h2>
-            <button id="clearLogs" type="button">지우기</button>
+            <div class="diagnostics-actions">
+              <button id="copyLogs" type="button">복사</button>
+              <button id="clearLogs" type="button">지우기</button>
+            </div>
           </div>
           <pre id="debugLog" aria-live="polite">HTML loaded. Boot logger is starting...</pre>
         </section>
@@ -130,6 +165,6 @@
         });
       })();
     </script>
-    <script type="module" src="./src/main.js"></script>
+    <script type="module" src="./src/main.js?v=real-webxr-floating-menu-6"></script>
   </body>
 </html>
