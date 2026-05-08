@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 
 const MODEL_URL = './assets/2_ST_respirator_SET.glb';
-const APP_BUILD = 'ar-click-layer-request-10';
+const APP_BUILD = 'fix-selected-object-init-11';
 
 const canvas = document.querySelector('#scene');
 const notice = document.querySelector('#notice');
@@ -149,12 +149,6 @@ scene.add(xrInteractor.group);
 const desktopTest = createDesktopTestMode();
 scene.add(desktopTest.hand);
 
-const fallbackModel = createFallbackModel();
-modelContent.add(fallbackModel);
-loadRespiratorModel();
-setModelScale(Number(scaleSlider.value));
-updateModelPositionReadout();
-
 let hitTestSource = null;
 let hitTestSourceRequested = false;
 let qrStream = null;
@@ -176,6 +170,12 @@ const xrDiagnostics = {
   lastFrameLogTime: 0,
   lastMenuLogTime: 0,
 };
+
+const fallbackModel = createFallbackModel();
+modelContent.add(fallbackModel);
+loadRespiratorModel();
+setModelScale(Number(scaleSlider.value));
+updateModelPositionReadout();
 
 clearLogsButton.addEventListener('click', () => {
   logLines.length = 0;
