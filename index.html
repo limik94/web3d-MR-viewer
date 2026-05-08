@@ -30,6 +30,7 @@
 
         <div id="arButtonHost" class="control-group" aria-label="AR start">
           <button id="enterAr" class="primary-ar" type="button">AR 시작</button>
+          <button id="exitAr" class="danger-ar" type="button" hidden>AR 종료</button>
         </div>
 
         <div class="control-group">
@@ -108,6 +109,7 @@
         window.addEventListener('DOMContentLoaded', function () {
           window.__MRLog('page.domcontentloaded', 'DOM is ready');
           const arButton = document.querySelector('#enterAr');
+          const exitButton = document.querySelector('#exitAr');
           if (arButton) {
             window.__MRLog('page.arButton', 'AR button found in DOM');
             arButton.addEventListener('click', function () {
@@ -115,6 +117,12 @@
             }, true);
           } else {
             window.__MRLog('page.arButton.missing', 'AR button is not in DOM');
+          }
+          if (exitButton) {
+            window.__MRLog('page.exitButton', 'Exit AR button found in DOM');
+            exitButton.addEventListener('click', function () {
+              window.__MRLog('page.exitButton.click', 'native click event received');
+            }, true);
           }
         });
         window.addEventListener('load', function () {

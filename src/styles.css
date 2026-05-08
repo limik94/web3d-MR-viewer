@@ -52,6 +52,25 @@ h1 { margin: 0.15rem 0 1rem; font-size: clamp(1.35rem, 5vw, 2rem); line-height: 
   color: #04130a;
   font-weight: 800;
 }
+#arButtonHost .danger-ar {
+  background: #f87171;
+  color: #1f0707;
+}
+body.xr-active #panel {
+  top: max(0.75rem, env(safe-area-inset-top));
+  left: max(0.75rem, env(safe-area-inset-left));
+  width: min(22rem, calc(100vw - 1.5rem));
+  max-height: calc(100vh - 1.5rem);
+  background: rgba(15, 23, 42, 0.72);
+}
+body.xr-active #panel::after {
+  content: "AR overlay";
+  display: block;
+  margin-top: 0.75rem;
+  color: #86efac;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
 .range-row, .button-row { display: flex; gap: 0.7rem; align-items: center; }
 .range-row input { flex: 1; }
 #scaleValue { min-width: 4rem; text-align: right; font-variant-numeric: tabular-nums; }

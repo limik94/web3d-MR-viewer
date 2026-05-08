@@ -6,6 +6,7 @@ const MODEL_URL = './assets/2_ST_respirator_SET.glb';
 const canvas = document.querySelector('#scene');
 const notice = document.querySelector('#notice');
 const enterArButton = document.querySelector('#enterAr');
+const exitArButton = document.querySelector('#exitAr');
 const scaleSlider = document.querySelector('#modelScale');
 const scaleValue = document.querySelector('#scaleValue');
 const resetModelButton = document.querySelector('#resetModel');
@@ -108,6 +109,9 @@ renderer.xr.addEventListener('sessionstart', () => {
   notice.textContent = 'AR 세션이 시작되었습니다. 바닥/테이블을 비춘 뒤 터치하면 모델을 배치할 수 있습니다.';
   enterArButton.textContent = 'AR 실행 중';
   enterArButton.disabled = true;
+  exitArButton.hidden = false;
+  exitArButton.disabled = false;
+  document.body.classList.add('xr-active');
   captureQrPoseButton.disabled = false;
 });
 
@@ -116,6 +120,9 @@ renderer.xr.addEventListener('sessionend', () => {
   notice.textContent = 'AR 세션이 종료되었습니다.';
   enterArButton.textContent = 'AR 시작';
   enterArButton.disabled = false;
+  exitArButton.hidden = true;
+  exitArButton.disabled = false;
+  document.body.classList.remove('xr-active');
   hitTestSourceRequested = false;
   hitTestSource = null;
   reticle.visible = false;
@@ -136,6 +143,7 @@ resetModelButton.addEventListener('click', () => {
 captureQrPoseButton.addEventListener('click', captureQrPose);
 startQrButton.addEventListener('click', startQrScanner);
 stopQrButton.addEventListener('click', stopQrScanner);
+exitArButton.addEventListener('click', endArSession);
 window.addEventListener('resize', onResize);
 
 renderer.setAnimationLoop((timestamp, frame) => {
@@ -212,6 +220,7 @@ async function startArSession() {
     })}`);
     const session = await navigator.xr.requestSession('immersive-ar', requestOptions);
     addLog('xr.request.ok', `session granted; mode=${session.mode || 'unknown'}`);
+    addLog('xr.domOverlay', `state=${session.domOverlayState?.type || 'not-granted'}`);
     session.addEventListener('end', () => addLog('xr.native.end', 'XRSession end event'));
     session.addEventListener('visibilitychange', () => addLog('xr.visibility', session.visibilityState || 'unknown'));
     addLog('xr.renderer.setSession', 'calling renderer.xr.setSession');
@@ -225,6 +234,27 @@ async function startArSession() {
   } finally {
     window.clearTimeout(waitingLogId);
     arSessionRequestInFlight = false;
+  }
+}
+
+async function endArSession() {
+  addLog('xr.exit.button', 'Exit AR button clicked');
+  const session = renderer.xr.getSession();
+  if (!session) {
+    addLog('xr.exit.skip', 'No active XRSession');
+    notice.textContent = '종료할 AR 세션이 없습니다.';
+    return;
+  }
+
+  exitArButton.disabled = true;
+  notice.textContent = 'AR 세션을 종료하는 중입니다.';
+  try {
+    await session.end();
+    addLog('xr.exit.ok', 'session.end resolved');
+  } catch (error) {
+    addLog('xr.exit.error', formatError(error));
+    exitArButton.disabled = false;
+    notice.textContent = `AR 종료 실패: ${getErrorName(error)}. 진단 로그를 확인해주세요.`;
   }
 }
 
