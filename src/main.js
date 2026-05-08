@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
+import { CartoonOutline } from './CartoonEdgeShader.js';
 
 const MODEL_URL = './assets/2_ST_respirator_SET.glb';
-const APP_BUILD = 'left-menu-controller-fallback-12';
+const APP_BUILD = 'cartoon-edge-selection-13';
 
 const canvas = document.querySelector('#scene');
 const notice = document.querySelector('#notice');
@@ -159,6 +160,7 @@ let arSessionRequestInFlight = false;
 let arButtonListenerAttached = false;
 let autoPlacedOnReticle = false;
 let selectedObject = null;
+let selectedOutline = null;
 const latestViewerPose = {
   position: new THREE.Vector3(),
   quaternion: new THREE.Quaternion(),
@@ -532,10 +534,13 @@ async function loadRespiratorModel() {
   try {
     addLog('model.load', MODEL_URL);
     const gltf = await loader.loadAsync(MODEL_URL);
+    selectedOutline?.dispose();
+    selectedOutline = null;
     modelContent.clear();
     const model = gltf.scene;
     centerModel(model);
     modelContent.add(model);
+    if (selectedObject) selectObject(modelRoot, 'model-load-refresh');
     updateMoveGizmo();
     updateWorldMovePanel();
     notice.innerHTML = `모델을 불러왔습니다: <strong>${MODEL_URL}</strong>`;
@@ -1305,17 +1310,26 @@ function placeModelAtReticle(reason) {
 }
 
 function selectObject(object, reason) {
+  selectedOutline?.dispose();
+  selectedOutline = null;
   selectedObject = object;
-  selectionBounds.visible = Boolean(object);
-  updateSelectionBounds();
-  addLog('object.select', `${reason}; selected=${Boolean(object)}`);
+  selectionBounds.visible = false;
+  if (object) {
+    selectedOutline = new CartoonOutline(modelContent, {
+      thickness: 0.006,
+      color: 0x000000,
+      screenSpace: true,
+      renderOrder: 95,
+    });
+  }
+  addLog('object.select', `${reason}; selected=${Boolean(object)}; outline=${selectedOutline?.outlineMeshes.length || 0}`);
 }
 
 function selectObjectFromSource(source, reason) {
   if (!modelContent.children.length) return false;
   setRaycasterFromXrSource(source);
   const hits = xrInteractor.raycaster.intersectObject(modelRoot, true)
-    .filter((hit) => !hit.object.userData?.isWorldControl);
+    .filter((hit) => !hit.object.userData?.isWorldControl && !hit.object.userData?.isSelectionOutline);
   if (!hits.length) {
     addLog('object.select.miss', reason);
     return false;
