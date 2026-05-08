@@ -4,7 +4,7 @@ import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 import { CartoonOutline, PickingTint } from './CartoonEdgeShader.js';
 
 const MODEL_URL = './assets/2_ST_respirator_SET.glb';
-const APP_BUILD = 'multi-object-place-move-16';
+const APP_BUILD = 'fix-object-state-init-17';
 
 const canvas = document.querySelector('#scene');
 const notice = document.querySelector('#notice');
@@ -113,6 +113,15 @@ modelContent.name = 'Placed object 1 content';
 modelRoot.add(modelContent);
 modelRoot.userData.content = modelContent;
 
+let selectedObject = null;
+let selectedOutline = null;
+let pickingObject = null;
+let pickingTint = null;
+let sourceModelTemplate = null;
+let objectCounter = 1;
+let activeMoveMode = 'none';
+const objectRoots = [modelRoot];
+
 const selectionBounds = createSelectionBounds();
 selectionBounds.visible = false;
 scene.add(selectionBounds);
@@ -165,14 +174,6 @@ let lastQrResult = null;
 let arSessionRequestInFlight = false;
 let arButtonListenerAttached = false;
 let autoPlacedOnReticle = false;
-let selectedObject = null;
-let selectedOutline = null;
-let pickingObject = null;
-let pickingTint = null;
-let sourceModelTemplate = null;
-let objectCounter = 1;
-let activeMoveMode = 'none';
-const objectRoots = [modelRoot];
 const latestViewerPose = {
   position: new THREE.Vector3(),
   quaternion: new THREE.Quaternion(),
