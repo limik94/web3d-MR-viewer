@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 
 const MODEL_URL = './assets/2_ST_respirator_SET.glb';
-const APP_BUILD = 'ar-palm-scale-ray-8';
+const APP_BUILD = 'ar-session-fallback-9';
 
 const canvas = document.querySelector('#scene');
 const notice = document.querySelector('#notice');
@@ -409,22 +409,12 @@ async function startArSession() {
   addLog('xr.request.clean-ui', 'debug HUDs hidden; waiting for palm menu gesture');
   logWorldUiSelfTest();
 
-  const requestOptions = {
-    requiredFeatures: [],
-    optionalFeatures: ['hit-test', 'local', 'local-floor', 'bounded-floor', 'dom-overlay', 'hand-tracking'],
-    domOverlay: { root: document.body },
-  };
   const waitingLogId = window.setTimeout(() => {
     addLog('xr.request.waiting', 'requestSession has not resolved after 8 seconds. Check for a hidden permission prompt or blocked immersive AR.');
   }, 8000);
 
   try {
-    addLog('xr.request', `requestSession immersive-ar ${JSON.stringify({
-      requiredFeatures: requestOptions.requiredFeatures,
-      optionalFeatures: requestOptions.optionalFeatures,
-      hasDomOverlayRoot: Boolean(requestOptions.domOverlay?.root),
-    })}`);
-    const session = await navigator.xr.requestSession('immersive-ar', requestOptions);
+    const session = await requestArSessionWithFallbacks();
     addLog('xr.request.ok', `session granted; mode=${session.mode || 'unknown'}`);
     addLog('xr.domOverlay', `state=${session.domOverlayState?.type || 'not-granted'}`);
     addLog('xr.features', 'requested without required hit-test for PC emulator visibility debug');
@@ -442,6 +432,60 @@ async function startArSession() {
     window.clearTimeout(waitingLogId);
     arSessionRequestInFlight = false;
   }
+}
+
+async function requestArSessionWithFallbacks() {
+  const attempts = [
+    {
+      label: 'full-hand-dom',
+      options: {
+        optionalFeatures: ['hit-test', 'local-floor', 'bounded-floor', 'dom-overlay', 'hand-tracking'],
+        domOverlay: { root: document.body },
+      },
+    },
+    {
+      label: 'no-dom-overlay',
+      options: {
+        optionalFeatures: ['hit-test', 'local-floor', 'bounded-floor', 'hand-tracking'],
+      },
+    },
+    {
+      label: 'no-hand-tracking',
+      options: {
+        optionalFeatures: ['hit-test', 'local-floor', 'bounded-floor'],
+      },
+    },
+    {
+      label: 'minimal',
+      options: {},
+    },
+  ];
+  let lastError = null;
+
+  for (const attempt of attempts) {
+    const options = cloneXrRequestOptions(attempt.options);
+    addLog('xr.request.try', `${attempt.label}; ${JSON.stringify({
+      optionalFeatures: options.optionalFeatures || [],
+      hasDomOverlayRoot: Boolean(options.domOverlay?.root),
+    })}`);
+    try {
+      const session = await navigator.xr.requestSession('immersive-ar', options);
+      addLog('xr.request.try.ok', attempt.label);
+      return session;
+    } catch (error) {
+      lastError = error;
+      addLog('xr.request.try.fail', `${attempt.label}; ${formatError(error)}`);
+    }
+  }
+
+  throw lastError || new Error('All immersive-ar request attempts failed');
+}
+
+function cloneXrRequestOptions(options) {
+  const cloned = {};
+  if (options.optionalFeatures?.length) cloned.optionalFeatures = [...options.optionalFeatures];
+  if (options.domOverlay?.root) cloned.domOverlay = { root: options.domOverlay.root };
+  return cloned;
 }
 
 async function endArSession() {
