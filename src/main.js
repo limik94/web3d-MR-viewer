@@ -4,7 +4,7 @@ import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 import { CartoonOutline } from './CartoonEdgeShader.js';
 
 const MODEL_URL = './assets/2_ST_respirator_SET.glb';
-const APP_BUILD = 'cartoon-edge-selection-13';
+const APP_BUILD = 'lightweight-selection-outline-14';
 
 const canvas = document.querySelector('#scene');
 const notice = document.querySelector('#notice');
@@ -1318,7 +1318,6 @@ function selectObject(object, reason) {
     selectedOutline = new CartoonOutline(modelContent, {
       thickness: 0.006,
       color: 0x000000,
-      screenSpace: true,
       renderOrder: 95,
     });
   }
