@@ -65,6 +65,8 @@ PC WebXR 시뮬레이터와 일부 브라우저는 immersive AR 안에서 HTML `
 - 손/컨트롤러 ray로 모델을 pinch/select 하면 모델이 선택되고 노란 두께감 있는 edge bounds가 나타납니다.
 - 선택 후 왼손 손바닥을 뒤집어 카메라 쪽으로 보이면 손바닥 옆에 `LEFT PALM MENU`가 열립니다.
 - `LEFT PALM MENU`의 X/Y/Z 버튼으로 선택된 모델 위치를 이동합니다.
+- `LEFT PALM MENU`에는 모델 스케일 조절 바가 포함됩니다.
+- 손/컨트롤러 ray가 메뉴 UI에 닿으면 ray가 충돌 지점까지 짧아지고 끝의 둥근 포인터가 강조됩니다.
 - 아래쪽의 `SELECTED OBJECT` 3D 메뉴에서 X/Y/Z 버튼이 보이는지 확인합니다.
 - HUD의 `dom=none`은 HTML 오버레이가 차단된 상태라는 뜻이며, 이 경우 WebGL 3D HUD를 기준으로 디버깅합니다.
 - 컬러 진단판도 보이지 않으면 현재 AR 화면이 앱 WebGL 렌더 레이어를 표시하지 못하거나, 배포/캐시가 이전 코드일 가능성이 큽니다.

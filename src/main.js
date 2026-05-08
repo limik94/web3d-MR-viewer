@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 
 const MODEL_URL = './assets/2_ST_respirator_SET.glb';
-const APP_BUILD = 'ar-palm-menu-selection-7';
+const APP_BUILD = 'ar-palm-scale-ray-8';
 
 const canvas = document.querySelector('#scene');
 const notice = document.querySelector('#notice');
@@ -252,7 +252,9 @@ renderer.xr.addEventListener('sessionend', () => {
 const xrControllers = [renderer.xr.getController(0), renderer.xr.getController(1)];
 xrControllers.forEach((controller, index) => {
   controller.userData.index = index;
-  controller.add(createPointerRay(index === 0 ? 0x38bdf8 : 0xa78bfa));
+  const pointer = createPointerRay(index === 0 ? 0x38bdf8 : 0xa78bfa);
+  controller.userData.pointerVisual = pointer.userData.pointerVisual;
+  controller.add(pointer);
   controller.addEventListener('connected', (event) => {
     controller.userData.connected = true;
     const handedness = event.data?.handedness || `controller-${index + 1}`;
@@ -277,7 +279,9 @@ const xrHands = [renderer.xr.getHand(0), renderer.xr.getHand(1)];
 xrHands.forEach((hand, index) => {
   hand.userData.index = index;
   hand.add(handFactory.createHandModel(hand, 'spheres'));
-  hand.add(createHandPointer(index === 0 ? 0x38bdf8 : 0xa78bfa));
+  const pointer = createHandPointer(index === 0 ? 0x38bdf8 : 0xa78bfa);
+  hand.userData.pointerVisual = pointer.userData.pointerVisual;
+  hand.add(pointer);
   hand.addEventListener('connected', (event) => {
     hand.userData.connected = true;
     hand.userData.handedness = event.data?.handedness || '';
@@ -511,10 +515,14 @@ function centerModel(model) {
 }
 
 function setModelScale(scale) {
-  modelRoot.scale.setScalar(scale);
-  scaleValue.textContent = `${scale.toFixed(2)}x`;
+  const clamped = THREE.MathUtils.clamp(scale, Number(scaleSlider.min), Number(scaleSlider.max));
+  modelRoot.scale.setScalar(clamped);
+  scaleSlider.value = String(clamped);
+  scaleValue.textContent = `${clamped.toFixed(2)}x`;
+  updateMenuScaleControls();
   updateMoveGizmo();
   updateWorldMovePanel();
+  updateSelectionBounds();
 }
 
 function moveModel(axis, direction) {
@@ -676,13 +684,14 @@ function updateDesktopHandVisual() {
 
 function clickDesktopHoveredControl() {
   if (!desktopTest.enabled) return;
-  const hit = desktopTest.hovered || intersectWorldControls(desktopTest.raycaster);
-  if (!hit?.userData?.action) {
+  const hit = intersectWorldControlHit(desktopTest.raycaster);
+  const object = hit?.object || desktopTest.hovered;
+  if (!object?.userData?.action) {
     addLog('desktop.click.miss', `no 3D button under pointer; pointer=${formatPointerNdc()}`);
     return;
   }
-  hit.userData.action();
-  addLog('desktop.click.hit', `${hit.userData.label}; ${formatVector(modelRoot.position)}`);
+  object.userData.action(hit || { object, point: object.getWorldPosition(new THREE.Vector3()) });
+  addLog('desktop.click.hit', `${object.userData.label}; ${formatVector(modelRoot.position)}`);
 }
 
 function logWorldUiSelfTest() {
@@ -1029,6 +1038,7 @@ function logXrFrameDiagnostics() {
 function createWorldMovePanel(titleText = 'SELECTED OBJECT') {
   const group = new THREE.Group();
   group.userData.controls = [];
+  group.userData.scaleControls = [];
   group.userData.positionLabel = null;
 
   const background = new THREE.Mesh(
@@ -1072,11 +1082,71 @@ function createWorldMovePanel(titleText = 'SELECTED OBJECT') {
     group.add(button);
   });
 
+  const scaleControl = createScaleSliderControl(group);
+  scaleControl.position.set(0, -0.135, 0.018);
+  group.add(scaleControl);
+
   const hint = createTextSprite('Aim hand ray + pinch/select', '#cbd5e1', 520, 72, 22);
-  hint.position.set(0, -0.195, 0.012);
+  hint.position.set(0, -0.23, 0.012);
   hint.scale.set(0.52, 0.072, 1);
   group.add(hint);
 
+  return group;
+}
+
+function createScaleSliderControl(panel) {
+  const group = new THREE.Group();
+  const label = createTextSprite('SCALE', '#e0f2fe', 180, 64, 26);
+  label.position.set(-0.245, 0.01, 0.012);
+  label.scale.set(0.18, 0.064, 1);
+  group.add(label);
+
+  const track = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.42, 0.055),
+    new THREE.MeshBasicMaterial({
+      color: 0x334155,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+      side: THREE.DoubleSide,
+    })
+  );
+  track.position.set(0.055, 0, 0);
+  track.renderOrder = 24;
+  track.userData.isWorldControl = true;
+  track.userData.baseColor = 0x334155;
+  track.userData.label = 'SCALE';
+  track.userData.action = (hit) => setScaleFromSliderHit(track, hit.point);
+  track.userData.hoverOnly = true;
+  panel.userData.controls.push(track);
+  panel.userData.scaleControls.push(track);
+  group.add(track);
+
+  const fill = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.42, 0.02),
+    new THREE.MeshBasicMaterial({ color: 0x38bdf8, depthTest: false, side: THREE.DoubleSide })
+  );
+  fill.position.set(0.055, 0, 0.01);
+  fill.renderOrder = 25;
+  group.add(fill);
+
+  const knob = new THREE.Mesh(
+    new THREE.SphereGeometry(0.035, 18, 12),
+    new THREE.MeshBasicMaterial({ color: 0xf8fafc, depthTest: false })
+  );
+  knob.position.z = 0.025;
+  knob.renderOrder = 26;
+  group.add(knob);
+
+  const value = createTextSprite(scaleValue.textContent, '#f8fafc', 180, 64, 24);
+  value.position.set(0.31, 0.005, 0.012);
+  value.scale.set(0.18, 0.064, 1);
+  group.add(value);
+
+  track.userData.knob = knob;
+  track.userData.fill = fill;
+  track.userData.value = value;
+  updateScaleSliderVisual(track);
   return group;
 }
 
@@ -1100,6 +1170,36 @@ function createWorldButton(label, color, action) {
   text.scale.set(0.13, 0.06, 1);
   button.add(text);
   return button;
+}
+
+function setScaleFromSliderHit(track, worldPoint) {
+  const localPoint = track.worldToLocal(worldPoint.clone());
+  const ratio = THREE.MathUtils.clamp((localPoint.x + 0.21) / 0.42, 0, 1);
+  const min = Number(scaleSlider.min);
+  const max = Number(scaleSlider.max);
+  const scale = min + ratio * (max - min);
+  setModelScale(scale);
+  addLog('model.scale.slider', `${scale.toFixed(2)}x`);
+}
+
+function updateMenuScaleControls() {
+  [worldMovePanel, realArMenu, leftPalmMenu].forEach((panel) => {
+    (panel.userData.scaleControls || []).forEach(updateScaleSliderVisual);
+  });
+}
+
+function updateScaleSliderVisual(track) {
+  const min = Number(scaleSlider.min);
+  const max = Number(scaleSlider.max);
+  const scale = modelRoot.scale.x;
+  const ratio = THREE.MathUtils.clamp((scale - min) / (max - min), 0, 1);
+  const x = -0.21 + ratio * 0.42;
+  if (track.userData.knob) track.userData.knob.position.x = track.position.x + x;
+  if (track.userData.fill) {
+    track.userData.fill.scale.x = Math.max(ratio, 0.03);
+    track.userData.fill.position.x = track.position.x - 0.21 + (ratio * 0.42) / 2;
+  }
+  if (track.userData.value) updateTextSprite(track.userData.value, `${scale.toFixed(2)}x`);
 }
 
 function createTextSprite(text, color, width = 512, height = 96, fontSize = 32) {
@@ -1430,22 +1530,31 @@ function createXrInteractor() {
 
 function createPointerRay(color) {
   const group = new THREE.Group();
+  const baseLength = 1.2;
   const line = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.003, 0.003, 1.2, 10),
+    new THREE.CylinderGeometry(0.003, 0.003, baseLength, 10),
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, depthTest: false })
   );
   line.rotation.x = -Math.PI / 2;
-  line.position.z = -0.6;
+  line.position.z = -baseLength / 2;
   line.renderOrder = 30;
 
-  const hand = new THREE.Mesh(
-    new THREE.SphereGeometry(0.035, 18, 12),
+  const origin = new THREE.Mesh(
+    new THREE.SphereGeometry(0.028, 18, 12),
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false })
   );
-  hand.position.z = -0.045;
-  hand.scale.set(1.35, 0.8, 1);
-  hand.renderOrder = 31;
-  group.add(line, hand);
+  origin.position.z = -0.045;
+  origin.scale.set(1.35, 0.8, 1);
+  origin.renderOrder = 31;
+
+  const tip = new THREE.Mesh(
+    new THREE.SphereGeometry(0.022, 18, 12),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthTest: false })
+  );
+  tip.position.z = -baseLength;
+  tip.renderOrder = 32;
+  group.userData.pointerVisual = { line, tip, baseLength };
+  group.add(line, origin, tip);
   return group;
 }
 
@@ -1459,12 +1568,34 @@ function createHandPointer(color) {
     new THREE.CylinderGeometry(0.0025, 0.0025, 0.7, 10),
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, depthTest: false })
   );
+  const baseLength = 0.7;
   ray.rotation.x = -Math.PI / 2;
-  ray.position.z = -0.35;
+  ray.position.z = -baseLength / 2;
+  const tip = new THREE.Mesh(
+    new THREE.SphereGeometry(0.02, 18, 12),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthTest: false })
+  );
+  tip.position.z = -baseLength;
   fingertip.renderOrder = 31;
   ray.renderOrder = 30;
-  group.add(ray, fingertip);
+  tip.renderOrder = 32;
+  group.userData.pointerVisual = { line: ray, tip, baseLength };
+  group.add(ray, fingertip, tip);
   return group;
+}
+
+function updatePointerRayVisual(source, hitDistance) {
+  const visual = source.userData.pointerVisual;
+  if (!visual) return;
+  const targetLength = Number.isFinite(hitDistance)
+    ? THREE.MathUtils.clamp(hitDistance, 0.06, visual.baseLength)
+    : visual.baseLength;
+  visual.line.scale.y = targetLength / visual.baseLength;
+  visual.line.position.z = -targetLength / 2;
+  visual.tip.position.z = -targetLength;
+  const touching = Number.isFinite(hitDistance) && hitDistance <= visual.baseLength;
+  visual.tip.scale.setScalar(touching ? 1.35 : 1);
+  visual.tip.material.color.setHex(touching ? 0xfacc15 : 0xffffff);
 }
 
 function updateXrInteractor() {
@@ -1472,37 +1603,48 @@ function updateXrInteractor() {
   const sources = [...xrHands, ...xrControllers];
   let hovered = null;
   for (const source of sources) {
-    hovered = getWorldControlIntersection(source);
-    if (hovered) break;
+    const hit = getWorldControlHitFromSource(source);
+    updatePointerRayVisual(source, hit?.distance);
+    if (!hovered && hit?.object) hovered = hit.object;
   }
   setWorldControlHover(hovered);
 }
 
 function updateXrInteraction(source, isPressed = false) {
   if (!renderer.xr.isPresenting) return null;
-  const hovered = getWorldControlIntersection(source);
+  const hit = getWorldControlHitFromSource(source);
+  const hovered = hit?.object || null;
   setWorldControlHover(hovered);
+  updatePointerRayVisual(source, hit?.distance);
   if (isPressed && hovered) {
     hovered.material.opacity = 1;
   }
-  return hovered;
+  return hit;
 }
 
 function handleXrSelect(source) {
   const hit = updateXrInteraction(source, true);
-  if (!hit?.userData?.action) return false;
-  hit.userData.action();
-  addLog('xr.control.select', hit.userData.label || 'world-control');
+  if (!hit?.object?.userData?.action) return false;
+  hit.object.userData.action(hit);
+  addLog('xr.control.select', hit.object.userData.label || 'world-control');
   return true;
 }
 
 function getWorldControlIntersection(source) {
+  return getWorldControlHitFromSource(source)?.object || null;
+}
+
+function getWorldControlHitFromSource(source) {
   if (!source.userData.connected) return null;
   setRaycasterFromXrSource(source);
-  return intersectWorldControls(xrInteractor.raycaster);
+  return intersectWorldControlHit(xrInteractor.raycaster);
 }
 
 function intersectWorldControls(raycaster) {
+  return intersectWorldControlHit(raycaster)?.object || null;
+}
+
+function intersectWorldControlHit(raycaster) {
   const controls = [
     ...(worldMovePanel.visible ? worldMovePanel.userData.controls || [] : []),
     ...(realArMenu.visible ? realArMenu.userData.controls || [] : []),
@@ -1510,7 +1652,7 @@ function intersectWorldControls(raycaster) {
   ];
   if (!controls.length) return null;
   const hits = raycaster.intersectObjects(controls, false);
-  return hits[0]?.object || null;
+  return hits[0] || null;
 }
 
 function setRaycasterFromXrSource(source) {
