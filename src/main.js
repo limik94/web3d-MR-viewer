@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
-import { CartoonOutline } from './CartoonEdgeShader.js';
+import { CartoonOutline, PickingTint } from './CartoonEdgeShader.js';
 
 const MODEL_URL = './assets/2_ST_respirator_SET.glb';
-const APP_BUILD = 'lightweight-selection-outline-14';
+const APP_BUILD = 'split-picking-selection-shaders-15';
 
 const canvas = document.querySelector('#scene');
 const notice = document.querySelector('#notice');
@@ -161,6 +161,8 @@ let arButtonListenerAttached = false;
 let autoPlacedOnReticle = false;
 let selectedObject = null;
 let selectedOutline = null;
+let pickingObject = null;
+let pickingTint = null;
 const latestViewerPose = {
   position: new THREE.Vector3(),
   quaternion: new THREE.Quaternion(),
@@ -249,6 +251,7 @@ renderer.xr.addEventListener('sessionend', () => {
   reticleDebugPanel.visible = desktopTest.enabled;
   cameraOverlay.visible = desktopTest.enabled;
   xrInteractor.group.visible = false;
+  clearPickingObject();
   selectObject(null, 'session-end');
   setWorldControlHover(null);
 });
@@ -534,6 +537,7 @@ async function loadRespiratorModel() {
   try {
     addLog('model.load', MODEL_URL);
     const gltf = await loader.loadAsync(MODEL_URL);
+    clearPickingObject();
     selectedOutline?.dispose();
     selectedOutline = null;
     modelContent.clear();
@@ -1324,11 +1328,30 @@ function selectObject(object, reason) {
   addLog('object.select', `${reason}; selected=${Boolean(object)}; outline=${selectedOutline?.outlineMeshes.length || 0}`);
 }
 
+function setPickingObject(object, reason) {
+  if (pickingObject === object) return;
+  pickingTint?.dispose();
+  pickingTint = null;
+  pickingObject = object;
+  if (object) {
+    pickingTint = new PickingTint(modelContent, {
+      color: 0x38bdf8,
+      alpha: 0.32,
+      offset: 0.0015,
+      renderOrder: 90,
+    });
+  }
+  addLog('object.pick', `${reason}; picking=${Boolean(object)}; tint=${pickingTint?.tintMeshes.length || 0}`);
+}
+
+function clearPickingObject() {
+  setPickingObject(null, 'clear');
+}
+
 function selectObjectFromSource(source, reason) {
   if (!modelContent.children.length) return false;
   setRaycasterFromXrSource(source);
-  const hits = xrInteractor.raycaster.intersectObject(modelRoot, true)
-    .filter((hit) => !hit.object.userData?.isWorldControl && !hit.object.userData?.isSelectionOutline);
+  const hits = getModelHits(xrInteractor.raycaster);
   if (!hits.length) {
     addLog('object.select.miss', reason);
     return false;
@@ -1704,12 +1727,17 @@ function updateXrInteractor() {
   if (!renderer.xr.isPresenting) return;
   const sources = [...xrHands, ...xrControllers];
   let hovered = null;
+  let modelPicked = false;
   for (const source of sources) {
     const hit = getWorldControlHitFromSource(source);
     updatePointerRayVisual(source, hit?.distance);
     if (!hovered && hit?.object) hovered = hit.object;
+    if (!hit && !modelPicked && getModelHitFromSource(source)) {
+      modelPicked = true;
+    }
   }
   setWorldControlHover(hovered);
+  setPickingObject(modelPicked ? modelRoot : null, modelPicked ? 'xr-ray' : 'xr-ray-miss');
 }
 
 function updateXrInteraction(source, isPressed = false) {
@@ -1734,6 +1762,21 @@ function handleXrSelect(source) {
 
 function getWorldControlIntersection(source) {
   return getWorldControlHitFromSource(source)?.object || null;
+}
+
+function getModelHitFromSource(source) {
+  if (!source.userData.connected || !modelContent.children.length) return null;
+  setRaycasterFromXrSource(source);
+  return getModelHits(xrInteractor.raycaster)[0] || null;
+}
+
+function getModelHits(raycaster) {
+  return raycaster.intersectObject(modelRoot, true)
+    .filter((hit) => (
+      !hit.object.userData?.isWorldControl
+      && !hit.object.userData?.isSelectionOutline
+      && !hit.object.userData?.isPickingTint
+    ));
 }
 
 function getWorldControlHitFromSource(source) {
