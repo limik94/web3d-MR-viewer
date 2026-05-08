@@ -184,7 +184,8 @@ body.xr-active #panel::after {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.55rem;
 }
-.gizmo-buttons button {
+.gizmo-buttons button,
+.move-mode-buttons button {
   min-height: 2.75rem;
   padding: 0.6rem 0.35rem;
   color: #020617;
@@ -193,6 +194,18 @@ body.xr-active #panel::after {
 .gizmo-buttons .axis-x { background: #f87171; }
 .gizmo-buttons .axis-y { background: #4ade80; }
 .gizmo-buttons .axis-z { background: #60a5fa; }
+.move-mode-buttons {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+.move-mode-buttons button {
+  min-height: 2.5rem;
+  background: #a7f3d0;
+}
+.move-mode-buttons button.active {
+  background: #facc15;
+}
 body.xr-active .move-controls {
   border-color: rgba(134, 239, 172, 0.5);
   background: rgba(2, 6, 23, 0.62);

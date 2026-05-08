@@ -56,6 +56,14 @@
               <span>AR 위치 이동</span>
               <output id="modelPosition">x=0.000, y=-0.250, z=-1.100</output>
             </div>
+            <button id="placeObject" type="button">오브젝트 배치</button>
+            <div class="move-mode-buttons" aria-label="오브젝트 이동 모드">
+              <button type="button" data-move-mode="x">X축 이동</button>
+              <button type="button" data-move-mode="y">Y축 이동</button>
+              <button type="button" data-move-mode="z">Z축 이동</button>
+              <button type="button" data-move-mode="free">자유 이동</button>
+              <button type="button" data-move-mode="none">이동 해제</button>
+            </div>
             <div class="range-row compact">
               <label for="moveStep">이동 간격</label>
               <input id="moveStep" type="range" min="0.01" max="0.25" step="0.01" value="0.05" />
@@ -170,6 +178,6 @@
         });
       })();
     </script>
-    <script type="module" src="./src/main.js?v=split-picking-selection-shaders-15"></script>
+    <script type="module" src="./src/main.js?v=multi-object-place-move-16"></script>
   </body>
 </html>

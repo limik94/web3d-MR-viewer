@@ -4,7 +4,7 @@ import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 import { CartoonOutline, PickingTint } from './CartoonEdgeShader.js';
 
 const MODEL_URL = './assets/2_ST_respirator_SET.glb';
-const APP_BUILD = 'split-picking-selection-shaders-15';
+const APP_BUILD = 'multi-object-place-move-16';
 
 const canvas = document.querySelector('#scene');
 const notice = document.querySelector('#notice');
@@ -20,6 +20,8 @@ const moveStepInput = document.querySelector('#moveStep');
 const moveStepValue = document.querySelector('#moveStepValue');
 const modelPositionReadout = document.querySelector('#modelPosition');
 const moveModelButtons = document.querySelectorAll('[data-move-axis]');
+const placeObjectButton = document.querySelector('#placeObject');
+const moveModeButtons = document.querySelectorAll('[data-move-mode]');
 const captureQrPoseButton = document.querySelector('#captureQrPose');
 const startQrButton = document.querySelector('#startQr');
 const stopQrButton = document.querySelector('#stopQr');
@@ -102,10 +104,14 @@ reticle.add(reticleDebugPanel);
 
 const modelRoot = new THREE.Group();
 modelRoot.position.set(0, -0.25, -1.1);
+modelRoot.name = 'Placed object 1';
+modelRoot.userData.isPlacedObject = true;
 scene.add(modelRoot);
 
 const modelContent = new THREE.Group();
+modelContent.name = 'Placed object 1 content';
 modelRoot.add(modelContent);
+modelRoot.userData.content = modelContent;
 
 const selectionBounds = createSelectionBounds();
 selectionBounds.visible = false;
@@ -163,6 +169,10 @@ let selectedObject = null;
 let selectedOutline = null;
 let pickingObject = null;
 let pickingTint = null;
+let sourceModelTemplate = null;
+let objectCounter = 1;
+let activeMoveMode = 'none';
+const objectRoots = [modelRoot];
 const latestViewerPose = {
   position: new THREE.Vector3(),
   quaternion: new THREE.Quaternion(),
@@ -178,6 +188,7 @@ const xrDiagnostics = {
 };
 
 const fallbackModel = createFallbackModel();
+sourceModelTemplate = fallbackModel.clone(true);
 modelContent.add(fallbackModel);
 loadRespiratorModel();
 setModelScale(Number(scaleSlider.value));
@@ -321,6 +332,18 @@ moveModelButtons.forEach((button) => {
     moveModel(button.dataset.moveAxis, Number(button.dataset.moveDirection));
   });
 });
+if (placeObjectButton) {
+  placeObjectButton.addEventListener('click', () => {
+    placeObjectCopy('screen-button');
+  });
+} else {
+  addLog('ui.warn', 'placeObject button missing');
+}
+moveModeButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    setMoveMode(button.dataset.moveMode || 'none');
+  });
+});
 resetModelButton.addEventListener('click', () => {
   resetModelPose();
 });
@@ -346,6 +369,7 @@ renderer.setAnimationLoop((timestamp, frame) => {
   updateRealArMenu();
   updateLeftPalmMenu();
   updateSelectionBounds();
+  updateActiveMoveMode();
   updateArDebugHud();
   updateFailsafeDebugHud();
   updateXrVisibilityProbe();
@@ -543,8 +567,9 @@ async function loadRespiratorModel() {
     modelContent.clear();
     const model = gltf.scene;
     centerModel(model);
+    sourceModelTemplate = model.clone(true);
     modelContent.add(model);
-    if (selectedObject) selectObject(modelRoot, 'model-load-refresh');
+    if (selectedObject) selectObject(selectedObject, 'model-load-refresh');
     updateMoveGizmo();
     updateWorldMovePanel();
     notice.innerHTML = `모델을 불러왔습니다: <strong>${MODEL_URL}</strong>`;
@@ -566,7 +591,8 @@ function centerModel(model) {
 
 function setModelScale(scale) {
   const clamped = THREE.MathUtils.clamp(scale, Number(scaleSlider.min), Number(scaleSlider.max));
-  modelRoot.scale.setScalar(clamped);
+  const target = getActiveObject();
+  target.scale.setScalar(clamped);
   scaleSlider.value = String(clamped);
   scaleValue.textContent = `${clamped.toFixed(2)}x`;
   updateMenuScaleControls();
@@ -576,20 +602,110 @@ function setModelScale(scale) {
 }
 
 function moveModel(axis, direction) {
+  const target = getActiveObject();
   const step = Number(moveStepInput.value) || 0.05;
   const delta = step * Math.sign(direction || 1);
-  if (axis === 'x') modelRoot.position.x += delta;
-  if (axis === 'y') modelRoot.position.y += delta;
-  if (axis === 'z') modelRoot.position.z += delta;
+  if (axis === 'x') target.position.x += delta;
+  if (axis === 'y') target.position.y += delta;
+  if (axis === 'z') target.position.z += delta;
   updateModelPositionReadout();
   updateMoveGizmo();
   updateWorldMovePanel();
   updateSelectionBounds();
-  addLog('model.move', `${axis}${delta >= 0 ? '+' : ''}${delta.toFixed(3)} -> ${formatVector(modelRoot.position)}`);
+  addLog('model.move', `${axis}${delta >= 0 ? '+' : ''}${delta.toFixed(3)} -> ${formatVector(target.position)}`);
 }
 
 function updateModelPositionReadout() {
-  modelPositionReadout.textContent = formatVector(modelRoot.position);
+  modelPositionReadout.textContent = formatVector(getActiveObject().position);
+}
+
+function getActiveObject() {
+  return selectedObject || modelRoot;
+}
+
+function getObjectContent(object = getActiveObject()) {
+  return object?.userData?.content || modelContent;
+}
+
+function getObjectRoot(object) {
+  let current = object;
+  while (current) {
+    if (current.userData?.isPlacedObject) return current;
+    current = current.parent;
+  }
+  return null;
+}
+
+function cloneSourceModel() {
+  const source = sourceModelTemplate || createFallbackModel();
+  const clone = source.clone(true);
+  clone.traverse((child) => {
+    if (child.isMesh) {
+      child.userData.isSelectionOutline = false;
+      child.userData.isPickingTint = false;
+    }
+  });
+  return clone;
+}
+
+function placeObjectCopy(reason) {
+  const root = new THREE.Group();
+  objectCounter += 1;
+  root.name = `Placed object ${objectCounter}`;
+  root.userData.isPlacedObject = true;
+
+  const content = new THREE.Group();
+  content.name = `${root.name} content`;
+  root.userData.content = content;
+  root.add(content);
+  content.add(cloneSourceModel());
+
+  root.scale.setScalar(Number(scaleSlider.value) || getActiveObject().scale.x || 0.45);
+  setObjectPlacementPose(root);
+  scene.add(root);
+  objectRoots.push(root);
+  selectObject(root, `place-${reason}`);
+  updateModelPositionReadout();
+  updateMoveGizmo();
+  updateWorldMovePanel();
+  addLog('object.place', `${root.name}; total=${objectRoots.length}; ${formatVector(root.position)}`);
+  return root;
+}
+
+function setObjectPlacementPose(object) {
+  if (reticle.visible) {
+    object.position.setFromMatrixPosition(reticle.matrix);
+    object.quaternion.setFromRotationMatrix(reticle.matrix);
+    return;
+  }
+
+  const basePosition = latestViewerPose.available ? latestViewerPose.position : new THREE.Vector3();
+  const baseQuaternion = latestViewerPose.available ? latestViewerPose.quaternion : camera.quaternion;
+  if (!latestViewerPose.available) camera.getWorldPosition(basePosition);
+  object.position.copy(basePosition).add(new THREE.Vector3(0, -0.15, -0.85).applyQuaternion(baseQuaternion));
+  object.quaternion.copy(baseQuaternion);
+}
+
+function setMoveMode(mode) {
+  activeMoveMode = ['x', 'y', 'z', 'free'].includes(mode) ? mode : 'none';
+  moveModeButtons.forEach((button) => {
+    button.classList.toggle('active', button.dataset.moveMode === activeMoveMode);
+  });
+  addLog('object.moveMode', activeMoveMode);
+}
+
+function updateActiveMoveMode() {
+  if (activeMoveMode === 'none' || !selectedObject || !reticle.visible) return;
+  const target = getActiveObject();
+  const reticlePosition = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
+  if (activeMoveMode === 'free') {
+    target.position.copy(reticlePosition);
+  } else {
+    target.position[activeMoveMode] = reticlePosition[activeMoveMode];
+  }
+  updateModelPositionReadout();
+  updateMoveGizmo();
+  updateWorldMovePanel();
 }
 
 function formatVector(vector) {
@@ -682,7 +798,9 @@ function installDebugApi() {
       cameraOverlayVisible: cameraOverlay.visible,
       moveGizmoVisible: moveGizmo.visible,
       hovered: desktopTest.hovered?.userData?.label || xrInteractor.hovered?.userData?.label || null,
-      modelPosition: formatVector(modelRoot.position),
+      modelPosition: formatVector(getActiveObject().position),
+      objectCount: objectRoots.length,
+      moveMode: activeMoveMode,
       controls: [
         ...(worldMovePanel.userData.controls || []),
         ...(realArMenu.userData.controls || []),
@@ -741,12 +859,12 @@ function clickDesktopHoveredControl() {
     return;
   }
   object.userData.action(hit || { object, point: object.getWorldPosition(new THREE.Vector3()) });
-  addLog('desktop.click.hit', `${object.userData.label}; ${formatVector(modelRoot.position)}`);
+  addLog('desktop.click.hit', `${object.userData.label}; ${formatVector(getActiveObject().position)}`);
 }
 
 function logWorldUiSelfTest() {
   const controls = worldMovePanel.userData.controls || [];
-  const box = new THREE.Box3().setFromObject(modelContent);
+  const box = new THREE.Box3().setFromObject(getObjectContent());
   const summary = [
     `desktopTest=${desktopTest.enabled}`,
     `xrPresenting=${renderer.xr.isPresenting}`,
@@ -756,7 +874,7 @@ function logWorldUiSelfTest() {
     `controls=${controls.length}`,
     `controlLabels=${controls.map((control) => control.userData.label).join(',')}`,
     `modelBoxEmpty=${box.isEmpty()}`,
-    `modelPosition=${formatVector(modelRoot.position)}`,
+    `modelPosition=${formatVector(getActiveObject().position)}`,
     `pointer=${formatPointerNdc()}`,
     `hover=${desktopTest.hovered?.userData?.label || 'none'}`,
   ];
@@ -1007,7 +1125,7 @@ function updateArDebugHud(force = false) {
     APP_BUILD,
     `xr=${renderer.xr.isPresenting} dom=${domOverlayState} test=${desktopTest.enabled}`,
     `menu=${worldMovePanel.visible} hud=${arDebugHud.visible} camChild=${arDebugHud.parent === cameraOverlay} hover=${hover}`,
-    `model ${formatVector(modelRoot.position)}`,
+    `objects=${objectRoots.length} move=${activeMoveMode} model ${formatVector(getActiveObject().position)}`,
     ...logLines.slice(-7),
   ];
   updateHudTextSprite(arDebugHud.userData.lines, hudLines.join('\n'));
@@ -1110,19 +1228,19 @@ function createWorldMovePanel(titleText = 'SELECTED OBJECT') {
   title.scale.set(0.42, 0.072, 1);
   group.add(title);
 
-  const positionLabel = createTextSprite(formatVector(modelRoot.position), '#e0f2fe', 520, 76, 24);
+  const positionLabel = createTextSprite(formatVector(getActiveObject().position), '#e0f2fe', 520, 76, 24);
   positionLabel.position.set(0, 0.165, 0.012);
   positionLabel.scale.set(0.52, 0.076, 1);
   group.userData.positionLabel = positionLabel;
   group.add(positionLabel);
 
   const buttonSpecs = [
-    ['X-', -0.2, 0.065, 0xef4444, () => moveModel('x', -1)],
-    ['X+', -0.04, 0.065, 0xef4444, () => moveModel('x', 1)],
-    ['Y-', 0.12, 0.065, 0x22c55e, () => moveModel('y', -1)],
-    ['Y+', 0.28, 0.065, 0x22c55e, () => moveModel('y', 1)],
-    ['Z-', -0.12, -0.03, 0x3b82f6, () => moveModel('z', -1)],
-    ['Z+', 0.04, -0.03, 0x3b82f6, () => moveModel('z', 1)],
+    ['PLACE', -0.2, 0.065, 0xfacc15, () => placeObjectCopy('world-menu')],
+    ['FREE', -0.04, 0.065, 0x14b8a6, () => setMoveMode('free')],
+    ['X', 0.12, 0.065, 0xef4444, () => setMoveMode('x')],
+    ['Y', 0.28, 0.065, 0x22c55e, () => setMoveMode('y')],
+    ['Z', -0.12, -0.03, 0x3b82f6, () => setMoveMode('z')],
+    ['STOP', 0.04, -0.03, 0x64748b, () => setMoveMode('none')],
     ['RESET', 0.2, -0.03, 0xf59e0b, () => resetModelPose()],
   ];
 
@@ -1242,7 +1360,7 @@ function updateMenuScaleControls() {
 function updateScaleSliderVisual(track) {
   const min = Number(scaleSlider.min);
   const max = Number(scaleSlider.max);
-  const scale = modelRoot.scale.x;
+  const scale = getActiveObject().scale.x;
   const ratio = THREE.MathUtils.clamp((scale - min) / (max - min), 0, 1);
   const x = -0.21 + ratio * 0.42;
   if (track.userData.knob) track.userData.knob.position.x = track.position.x + x;
@@ -1293,24 +1411,26 @@ function updateTextSprite(sprite, text) {
 }
 
 function resetModelPose() {
-  modelRoot.position.set(0, -0.25, -1.1);
-  modelRoot.rotation.set(0, 0, 0);
+  const target = getActiveObject();
+  target.position.set(0, -0.25, -1.1);
+  target.rotation.set(0, 0, 0);
   updateModelPositionReadout();
   updateMoveGizmo();
   updateWorldMovePanel();
   updateSelectionBounds();
-  addLog('model.reset', formatVector(modelRoot.position));
+  addLog('model.reset', formatVector(target.position));
 }
 
 function placeModelAtReticle(reason) {
   if (!reticle.visible) return;
-  modelRoot.position.setFromMatrixPosition(reticle.matrix);
-  modelRoot.quaternion.setFromRotationMatrix(reticle.matrix);
+  const target = getActiveObject();
+  target.position.setFromMatrixPosition(reticle.matrix);
+  target.quaternion.setFromRotationMatrix(reticle.matrix);
   updateModelPositionReadout();
   updateMoveGizmo();
   updateWorldMovePanel();
   updateSelectionBounds();
-  addLog('model.place.reticle', `${reason}; ${formatVector(modelRoot.position)}`);
+  addLog('model.place.reticle', `${reason}; ${formatVector(target.position)}`);
 }
 
 function selectObject(object, reason) {
@@ -1319,7 +1439,7 @@ function selectObject(object, reason) {
   selectedObject = object;
   selectionBounds.visible = false;
   if (object) {
-    selectedOutline = new CartoonOutline(modelContent, {
+    selectedOutline = new CartoonOutline(getObjectContent(object), {
       thickness: 0.006,
       color: 0x000000,
       renderOrder: 95,
@@ -1334,7 +1454,7 @@ function setPickingObject(object, reason) {
   pickingTint = null;
   pickingObject = object;
   if (object) {
-    pickingTint = new PickingTint(modelContent, {
+    pickingTint = new PickingTint(getObjectContent(object), {
       color: 0x38bdf8,
       alpha: 0.32,
       offset: 0.0015,
@@ -1349,14 +1469,14 @@ function clearPickingObject() {
 }
 
 function selectObjectFromSource(source, reason) {
-  if (!modelContent.children.length) return false;
+  if (!objectRoots.length) return false;
   setRaycasterFromXrSource(source);
   const hits = getModelHits(xrInteractor.raycaster);
   if (!hits.length) {
     addLog('object.select.miss', reason);
     return false;
   }
-  selectObject(modelRoot, reason);
+  selectObject(getObjectRoot(hits[0].object) || modelRoot, reason);
   return true;
 }
 
@@ -1380,7 +1500,7 @@ function createSelectionBounds() {
 
 function updateSelectionBounds() {
   if (!selectedObject || !selectionBounds.visible) return;
-  const box = new THREE.Box3().setFromObject(modelContent);
+  const box = new THREE.Box3().setFromObject(getObjectContent(selectedObject));
   if (box.isEmpty()) return;
   box.expandByScalar(0.035);
   const min = box.min;
@@ -1476,7 +1596,7 @@ function createAxisLabel(text, color) {
 
 function updateMoveGizmo() {
   if (!moveGizmo.visible) return;
-  const box = new THREE.Box3().setFromObject(modelContent);
+  const box = new THREE.Box3().setFromObject(getObjectContent());
   if (box.isEmpty()) return;
   const size = box.getSize(new THREE.Vector3());
   moveGizmo.position.set(box.max.x + Math.max(size.x * 0.12, 0.08), box.max.y + Math.max(size.y * 0.12, 0.08), box.max.z + 0.03);
@@ -1488,11 +1608,11 @@ function updateWorldMovePanel() {
   if (!worldMovePanel.visible) return;
   if (renderer.xr.isPresenting || desktopTest.enabled) {
     positionInCameraOverlay(worldMovePanel, 0, -0.28, -0.72, 0.86);
-    updateTextSprite(worldMovePanel.userData.positionLabel, formatVector(modelRoot.position));
+    updateTextSprite(worldMovePanel.userData.positionLabel, formatVector(getActiveObject().position));
     return;
   }
 
-  const box = new THREE.Box3().setFromObject(modelContent);
+  const box = new THREE.Box3().setFromObject(getObjectContent());
   if (box.isEmpty()) return;
   const size = box.getSize(new THREE.Vector3());
   const panelOffset = Math.max(size.x * 0.45, 0.42);
@@ -1509,7 +1629,7 @@ function updateWorldMovePanel() {
 
   const distance = cameraPosition.distanceTo(worldMovePanel.position);
   worldMovePanel.scale.setScalar(Math.max(0.82, distance * 0.52));
-  updateTextSprite(worldMovePanel.userData.positionLabel, formatVector(modelRoot.position));
+  updateTextSprite(worldMovePanel.userData.positionLabel, formatVector(getActiveObject().position));
 }
 
 function updateRealArMenu(force = false) {
@@ -1524,7 +1644,7 @@ function updateRealArMenu(force = false) {
   }
   realArMenu.scale.setScalar(0.85);
   realArMenu.frustumCulled = false;
-  updateTextSprite(realArMenu.userData.positionLabel, formatVector(modelRoot.position));
+  updateTextSprite(realArMenu.userData.positionLabel, formatVector(getActiveObject().position));
   const now = performance.now();
   if (force || now - xrDiagnostics.lastMenuLogTime > 3000) {
     xrDiagnostics.lastMenuLogTime = now;
@@ -1597,7 +1717,7 @@ function updateLeftPalmMenuFromHand(leftHand) {
   leftPalmMenu.quaternion.copy(latestViewerPose.available ? latestViewerPose.quaternion : camera.quaternion);
   leftPalmMenu.scale.setScalar(0.45);
   leftPalmMenu.frustumCulled = false;
-  updateTextSprite(leftPalmMenu.userData.positionLabel, selectedObject ? formatVector(modelRoot.position) : 'object not selected');
+  updateTextSprite(leftPalmMenu.userData.positionLabel, selectedObject ? formatVector(getActiveObject().position) : 'object not selected');
   return true;
 }
 
@@ -1613,7 +1733,7 @@ function updateLeftPalmMenuFromController(leftController) {
   leftPalmMenu.quaternion.copy(cameraQuaternion);
   leftPalmMenu.scale.setScalar(0.52);
   leftPalmMenu.frustumCulled = false;
-  updateTextSprite(leftPalmMenu.userData.positionLabel, formatVector(modelRoot.position));
+  updateTextSprite(leftPalmMenu.userData.positionLabel, formatVector(getActiveObject().position));
   setLeftPalmMenuVisible(true, 'left-controller-fallback');
 }
 
@@ -1765,13 +1885,13 @@ function getWorldControlIntersection(source) {
 }
 
 function getModelHitFromSource(source) {
-  if (!source.userData.connected || !modelContent.children.length) return null;
+  if (!source.userData.connected || !objectRoots.length) return null;
   setRaycasterFromXrSource(source);
   return getModelHits(xrInteractor.raycaster)[0] || null;
 }
 
 function getModelHits(raycaster) {
-  return raycaster.intersectObject(modelRoot, true)
+  return raycaster.intersectObjects(objectRoots, true)
     .filter((hit) => (
       !hit.object.userData?.isWorldControl
       && !hit.object.userData?.isSelectionOutline
