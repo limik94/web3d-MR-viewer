@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 
 const MODEL_URL = './assets/2_ST_respirator_SET.glb';
-const APP_BUILD = 'fix-selected-object-init-11';
+const APP_BUILD = 'left-menu-controller-fallback-12';
 
 const canvas = document.querySelector('#scene');
 const notice = document.querySelector('#notice');
@@ -169,6 +169,8 @@ const xrDiagnostics = {
   viewerPoseCount: 0,
   lastFrameLogTime: 0,
   lastMenuLogTime: 0,
+  lastLeftPalmLogTime: 0,
+  lastLeftPalmState: '',
 };
 
 const fallbackModel = createFallbackModel();
@@ -258,10 +260,12 @@ xrControllers.forEach((controller, index) => {
   controller.addEventListener('connected', (event) => {
     controller.userData.connected = true;
     const handedness = event.data?.handedness || `controller-${index + 1}`;
+    controller.userData.handedness = handedness;
     addLog('xr.input.connected', `${handedness}; hand=${Boolean(event.data?.hand)}`);
   });
   controller.addEventListener('disconnected', () => {
     controller.userData.connected = false;
+    controller.userData.handedness = '';
   });
   controller.addEventListener('selectstart', () => updateXrInteraction(controller, true));
   controller.addEventListener('select', () => {
@@ -1059,6 +1063,7 @@ function logXrFrameDiagnostics() {
     `viewerPose=${latestViewerPose.available}`,
     `inputs=${inputSources.length}`,
     `menu=${realArMenu.visible}`,
+    `leftMenu=${leftPalmMenu.visible}`,
     `overlay=${cameraOverlay.visible}`,
   ].join('; '));
   inputSources.forEach((source, index) => {
@@ -1499,25 +1504,37 @@ function updateRealArMenu(force = false) {
 
 function updateLeftPalmMenu() {
   if (!renderer.xr.isPresenting) {
-    leftPalmMenu.visible = false;
+    setLeftPalmMenuVisible(false, 'not-presenting');
     return;
   }
   if (!selectedObject) {
-    leftPalmMenu.visible = false;
-    return;
-  }
-  const leftHand = xrHands.find((hand) => hand.userData.connected && hand.userData.handedness === 'left') || xrHands[0];
-  if (!leftHand?.userData.connected) {
-    leftPalmMenu.visible = false;
+    setLeftPalmMenuVisible(false, 'no-selected-object');
     return;
   }
 
+  const leftHand = xrHands.find((hand) => hand.userData.connected && hand.userData.handedness === 'left');
+  if (leftHand && updateLeftPalmMenuFromHand(leftHand)) {
+    return;
+  }
+
+  const leftController = xrControllers.find((controller) => (
+    controller.userData.connected && controller.userData.handedness === 'left'
+  ));
+  if (leftController) {
+    updateLeftPalmMenuFromController(leftController);
+    return;
+  }
+
+  setLeftPalmMenuVisible(false, leftHand ? 'left-hand-joints-missing' : 'no-left-hand-or-controller');
+}
+
+function updateLeftPalmMenuFromHand(leftHand) {
   const wrist = getHandJoint(leftHand, 'wrist');
   const indexBase = getHandJoint(leftHand, 'index-finger-metacarpal');
   const pinkyBase = getHandJoint(leftHand, 'pinky-finger-metacarpal');
   if (!wrist?.visible || !indexBase?.visible || !pinkyBase?.visible) {
-    leftPalmMenu.visible = false;
-    return;
+    logLeftPalmMenuState('hand-joints-not-visible');
+    return false;
   }
 
   const wristPos = new THREE.Vector3();
@@ -1535,8 +1552,8 @@ function updateLeftPalmMenu() {
   const toCamera = cameraPosition.sub(wristPos).normalize();
   const palmFacingCamera = Math.abs(palmNormal.dot(toCamera)) > 0.42;
 
-  leftPalmMenu.visible = palmFacingCamera;
-  if (!leftPalmMenu.visible) return;
+  setLeftPalmMenuVisible(palmFacingCamera, `hand-dot=${palmNormal.dot(toCamera).toFixed(2)}`);
+  if (!leftPalmMenu.visible) return true;
 
   leftPalmMenu.position.copy(wristPos)
     .add(acrossPalm.multiplyScalar(0.16))
@@ -1545,6 +1562,41 @@ function updateLeftPalmMenu() {
   leftPalmMenu.scale.setScalar(0.45);
   leftPalmMenu.frustumCulled = false;
   updateTextSprite(leftPalmMenu.userData.positionLabel, selectedObject ? formatVector(modelRoot.position) : 'object not selected');
+  return true;
+}
+
+function updateLeftPalmMenuFromController(leftController) {
+  const controllerPosition = new THREE.Vector3();
+  const controllerQuaternion = new THREE.Quaternion();
+  leftController.getWorldPosition(controllerPosition);
+  leftController.getWorldQuaternion(controllerQuaternion);
+
+  const cameraQuaternion = latestViewerPose.available ? latestViewerPose.quaternion : camera.quaternion;
+  const offset = new THREE.Vector3(0.14, 0.04, -0.24).applyQuaternion(controllerQuaternion);
+  leftPalmMenu.position.copy(controllerPosition).add(offset);
+  leftPalmMenu.quaternion.copy(cameraQuaternion);
+  leftPalmMenu.scale.setScalar(0.52);
+  leftPalmMenu.frustumCulled = false;
+  updateTextSprite(leftPalmMenu.userData.positionLabel, formatVector(modelRoot.position));
+  setLeftPalmMenuVisible(true, 'left-controller-fallback');
+}
+
+function setLeftPalmMenuVisible(visible, reason) {
+  leftPalmMenu.visible = visible;
+  logLeftPalmMenuState(`${visible ? 'show' : 'hide'}:${reason}`);
+}
+
+function logLeftPalmMenuState(state) {
+  const now = performance.now();
+  if (state === xrDiagnostics.lastLeftPalmState && now - xrDiagnostics.lastLeftPalmLogTime < 2500) return;
+  xrDiagnostics.lastLeftPalmState = state;
+  xrDiagnostics.lastLeftPalmLogTime = now;
+  addLog('left-palm-menu', [
+    state,
+    `selected=${Boolean(selectedObject)}`,
+    `hands=${xrHands.filter((hand) => hand.userData.connected).map((hand) => hand.userData.handedness || hand.userData.index).join(',') || 'none'}`,
+    `controllers=${xrControllers.filter((controller) => controller.userData.connected).map((controller) => controller.userData.handedness || controller.userData.index).join(',') || 'none'}`,
+  ].join('; '));
 }
 
 function getHandJoint(hand, name) {
