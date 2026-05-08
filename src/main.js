@@ -1,12 +1,11 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js';
-import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/webxr/ARButton.js';
 import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/loaders/GLTFLoader.js';
 
 const MODEL_URL = './assets/2_ST_respirator_SET.glb';
 
 const canvas = document.querySelector('#scene');
 const notice = document.querySelector('#notice');
-const arButtonHost = document.querySelector('#arButtonHost');
+const enterArButton = document.querySelector('#enterAr');
 const scaleSlider = document.querySelector('#modelScale');
 const scaleValue = document.querySelector('#scaleValue');
 const resetModelButton = document.querySelector('#resetModel');
@@ -58,36 +57,19 @@ let qrDetector = null;
 let qrLoopId = null;
 let lastQrResult = null;
 
-const arButton = ARButton.createButton(renderer, {
-  requiredFeatures: ['hit-test'],
-  optionalFeatures: ['local-floor', 'dom-overlay'],
-  domOverlay: { root: document.body },
-});
-arButton.textContent = arButton.textContent === 'START AR' ? 'Enter AR' : arButton.textContent;
-Object.assign(arButton.style, {
-  position: 'static',
-  width: '100%',
-  height: 'auto',
-  minHeight: '3rem',
-  margin: '0',
-  padding: '0.85rem 1rem',
-  borderRadius: '0.75rem',
-  background: '#22c55e',
-  color: '#04130a',
-  fontWeight: '800',
-  letterSpacing: '0',
-  textAlign: 'center',
-  zIndex: 'auto',
-});
-arButtonHost.appendChild(arButton);
+initArButton();
 
 renderer.xr.addEventListener('sessionstart', () => {
   notice.textContent = 'AR 세션이 시작되었습니다. 바닥/테이블을 비춘 뒤 터치하면 모델을 배치할 수 있습니다.';
+  enterArButton.textContent = 'AR 실행 중';
+  enterArButton.disabled = true;
   captureQrPoseButton.disabled = false;
 });
 
 renderer.xr.addEventListener('sessionend', () => {
   notice.textContent = 'AR 세션이 종료되었습니다.';
+  enterArButton.textContent = 'AR 시작';
+  enterArButton.disabled = false;
   hitTestSourceRequested = false;
   hitTestSource = null;
   reticle.visible = false;
@@ -114,6 +96,51 @@ renderer.setAnimationLoop((timestamp, frame) => {
   if (frame) updateReticle(frame);
   renderer.render(scene, camera);
 });
+
+async function initArButton() {
+  if (!navigator.xr) {
+    enterArButton.disabled = true;
+    enterArButton.textContent = 'AR 미지원';
+    notice.textContent = '이 브라우저에서 WebXR AR을 찾을 수 없습니다. Meta Quest Browser의 HTTPS 주소에서 다시 열어주세요.';
+    return;
+  }
+
+  try {
+    const supported = await navigator.xr.isSessionSupported('immersive-ar');
+    if (!supported) {
+      enterArButton.disabled = true;
+      enterArButton.textContent = 'AR 미지원';
+      notice.textContent = '현재 브라우저가 immersive-ar 세션을 지원하지 않습니다. Quest Browser에서 WebXR 설정을 확인해주세요.';
+      return;
+    }
+    enterArButton.textContent = 'AR 시작';
+  } catch (error) {
+    console.warn('WebXR support check failed:', error);
+    enterArButton.textContent = 'AR 시작';
+  }
+
+  enterArButton.addEventListener('click', startArSession);
+}
+
+async function startArSession() {
+  if (!navigator.xr) return;
+  enterArButton.disabled = true;
+  enterArButton.textContent = 'AR 시작 중...';
+
+  try {
+    const session = await navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['hit-test'],
+      optionalFeatures: ['local-floor', 'dom-overlay'],
+      domOverlay: { root: document.body },
+    });
+    await renderer.xr.setSession(session);
+  } catch (error) {
+    console.error('AR session failed:', error);
+    enterArButton.disabled = false;
+    enterArButton.textContent = 'AR 시작';
+    notice.textContent = 'AR 세션을 시작하지 못했습니다. Quest Browser 권한, WebXR 지원, HTTPS 주소를 확인해주세요.';
+  }
+}
 
 function createFallbackModel() {
   const group = new THREE.Group();
