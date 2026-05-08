@@ -56,7 +56,7 @@
             <h2>진단 로그</h2>
             <button id="clearLogs" type="button">지우기</button>
           </div>
-          <pre id="debugLog" aria-live="polite"></pre>
+          <pre id="debugLog" aria-live="polite">HTML loaded. Boot logger is starting...</pre>
         </section>
       </section>
 
@@ -65,6 +65,55 @@
       <canvas id="qrCanvas"></canvas>
     </main>
 
+    <script>
+      (function () {
+        const lines = [];
+        const maxLines = 160;
+
+        function render() {
+          const target = document.querySelector('#debugLog');
+          if (!target) return;
+          target.textContent = lines.join('\n');
+          target.scrollTop = target.scrollHeight;
+        }
+
+        window.__MRLogLines = lines;
+        window.__MRLog = function (label, message) {
+          const time = new Date().toLocaleTimeString('ko-KR', { hour12: false });
+          lines.push(`[${time}] ${label}: ${message}`);
+          if (lines.length > maxLines) lines.splice(0, lines.length - maxLines);
+          render();
+        };
+
+        window.__MRLog('page.init', 'HTML parsed and inline boot logger started');
+        window.__MRLog('page.url', window.location.href);
+        window.__MRLog('page.secure', `secure=${window.isSecureContext}; protocol=${window.location.protocol}`);
+        window.__MRLog('page.ua', navigator.userAgent);
+
+        window.addEventListener('error', function (event) {
+          window.__MRLog('page.error', `${event.message} (${event.filename}:${event.lineno}:${event.colno})`);
+        });
+        window.addEventListener('unhandledrejection', function (event) {
+          const reason = event.reason && event.reason.message ? event.reason.message : String(event.reason);
+          window.__MRLog('page.promise.reject', reason);
+        });
+        window.addEventListener('DOMContentLoaded', function () {
+          window.__MRLog('page.domcontentloaded', 'DOM is ready');
+          const arButton = document.querySelector('#enterAr');
+          if (arButton) {
+            window.__MRLog('page.arButton', 'AR button found in DOM');
+            arButton.addEventListener('click', function () {
+              window.__MRLog('page.arButton.click', 'native click event received');
+            }, true);
+          } else {
+            window.__MRLog('page.arButton.missing', 'AR button is not in DOM');
+          }
+        });
+        window.addEventListener('load', function () {
+          window.__MRLog('page.load', 'window load event fired');
+        });
+      })();
+    </script>
     <script type="module" src="./src/main.js"></script>
   </body>
 </html>

@@ -25,7 +25,7 @@ const originalConsole = {
   warn: console.warn.bind(console),
   log: console.log.bind(console),
 };
-const logLines = [];
+const logLines = window.__MRLogLines || [];
 const maxLogLines = 120;
 
 console.error = (...args) => {
@@ -99,6 +99,7 @@ clearLogsButton.addEventListener('click', () => {
   addLog('log', 'cleared');
 });
 
+addLog('app.module', 'main.js module started');
 logEnvironment();
 initArButton();
 
@@ -441,10 +442,14 @@ function logEnvironment() {
 }
 
 function addLog(label, message) {
-  const time = new Date().toLocaleTimeString('ko-KR', { hour12: false });
-  logLines.push(`[${time}] ${label}: ${message}`);
-  if (logLines.length > maxLogLines) logLines.splice(0, logLines.length - maxLogLines);
-  renderLogs();
+  if (window.__MRLog) {
+    window.__MRLog(label, message);
+  } else {
+    const time = new Date().toLocaleTimeString('ko-KR', { hour12: false });
+    logLines.push(`[${time}] ${label}: ${message}`);
+    if (logLines.length > maxLogLines) logLines.splice(0, logLines.length - maxLogLines);
+    renderLogs();
+  }
 }
 
 function renderLogs() {
