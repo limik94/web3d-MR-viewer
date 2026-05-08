@@ -61,7 +61,10 @@ PC WebXR 시뮬레이터와 일부 브라우저는 immersive AR 안에서 HTML `
 - 화면 중앙 근처의 빨강/노랑/초록/파랑 진단판과 흰 구가 보이는지 확인합니다.
 - 파란 reticle 근처의 `RETICLE HUD`가 보이는지 확인합니다.
 - reticle이 처음 잡히면 모델이 자동으로 reticle 위치에 배치됩니다.
-- 실제 WebXR AR 기기에서는 시선 약 85cm 앞에 `REAL AR MENU real-webxr-floating-menu-6`가 떠서 X/Y/Z 이동 버튼을 제공합니다.
+- 실제 WebXR AR 기기에서는 디버그 HUD 대신 선택 표시와 왼손 손바닥 메뉴만 표시합니다.
+- 손/컨트롤러 ray로 모델을 pinch/select 하면 모델이 선택되고 노란 두께감 있는 edge bounds가 나타납니다.
+- 선택 후 왼손 손바닥을 뒤집어 카메라 쪽으로 보이면 손바닥 옆에 `LEFT PALM MENU`가 열립니다.
+- `LEFT PALM MENU`의 X/Y/Z 버튼으로 선택된 모델 위치를 이동합니다.
 - 아래쪽의 `SELECTED OBJECT` 3D 메뉴에서 X/Y/Z 버튼이 보이는지 확인합니다.
 - HUD의 `dom=none`은 HTML 오버레이가 차단된 상태라는 뜻이며, 이 경우 WebGL 3D HUD를 기준으로 디버깅합니다.
 - 컬러 진단판도 보이지 않으면 현재 AR 화면이 앱 WebGL 렌더 레이어를 표시하지 못하거나, 배포/캐시가 이전 코드일 가능성이 큽니다.

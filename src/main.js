@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 
 const MODEL_URL = './assets/2_ST_respirator_SET.glb';
-const APP_BUILD = 'real-webxr-floating-menu-6';
+const APP_BUILD = 'ar-palm-menu-selection-7';
 
 const canvas = document.querySelector('#scene');
 const notice = document.querySelector('#notice');
@@ -106,6 +106,10 @@ scene.add(modelRoot);
 const modelContent = new THREE.Group();
 modelRoot.add(modelContent);
 
+const selectionBounds = createSelectionBounds();
+selectionBounds.visible = false;
+scene.add(selectionBounds);
+
 const moveGizmo = createMoveGizmo();
 moveGizmo.visible = false;
 scene.add(moveGizmo);
@@ -122,6 +126,10 @@ cameraOverlay.add(worldMovePanel);
 const realArMenu = createWorldMovePanel('REAL AR MENU');
 realArMenu.visible = false;
 scene.add(realArMenu);
+
+const leftPalmMenu = createWorldMovePanel('LEFT PALM MENU');
+leftPalmMenu.visible = false;
+scene.add(leftPalmMenu);
 
 const arDebugHud = createArDebugHud();
 arDebugHud.visible = false;
@@ -156,6 +164,7 @@ let lastQrResult = null;
 let arSessionRequestInFlight = false;
 let arButtonListenerAttached = false;
 let autoPlacedOnReticle = false;
+let selectedObject = null;
 const latestViewerPose = {
   position: new THREE.Vector3(),
   quaternion: new THREE.Quaternion(),
@@ -194,20 +203,17 @@ renderer.xr.addEventListener('sessionstart', () => {
   exitArButton.disabled = false;
   document.body.classList.add('xr-active');
   captureQrPoseButton.disabled = false;
-  moveGizmo.visible = true;
-  worldMovePanel.visible = true;
-  realArMenu.visible = true;
-  arDebugHud.visible = true;
-  failsafeDebugHud.visible = true;
-  xrVisibilityProbe.visible = true;
-  reticleDebugPanel.visible = true;
-  cameraOverlay.visible = true;
+  moveGizmo.visible = false;
+  worldMovePanel.visible = false;
+  realArMenu.visible = false;
+  arDebugHud.visible = false;
+  failsafeDebugHud.visible = false;
+  xrVisibilityProbe.visible = false;
+  reticleDebugPanel.visible = false;
+  cameraOverlay.visible = false;
+  leftPalmMenu.visible = false;
   xrInteractor.group.visible = true;
-  updateMoveGizmo();
-  updateWorldMovePanel();
-  updateRealArMenu(true);
-  updateArDebugHud(true);
-  updateFailsafeDebugHud(true);
+  updateSelectionBounds();
   logWorldUiSelfTest();
 });
 
@@ -232,12 +238,14 @@ renderer.xr.addEventListener('sessionend', () => {
   moveGizmo.visible = desktopTest.enabled;
   worldMovePanel.visible = desktopTest.enabled;
   realArMenu.visible = false;
+  leftPalmMenu.visible = false;
   arDebugHud.visible = desktopTest.enabled;
   failsafeDebugHud.visible = desktopTest.enabled;
   xrVisibilityProbe.visible = desktopTest.enabled;
   reticleDebugPanel.visible = desktopTest.enabled;
   cameraOverlay.visible = desktopTest.enabled;
   xrInteractor.group.visible = false;
+  selectObject(null, 'session-end');
   setWorldControlHover(null);
 });
 
@@ -256,6 +264,7 @@ xrControllers.forEach((controller, index) => {
   controller.addEventListener('selectstart', () => updateXrInteraction(controller, true));
   controller.addEventListener('select', () => {
     if (handleXrSelect(controller)) return;
+    if (selectObjectFromSource(controller, `controller-${index}`)) return;
     if (index !== 0 || !reticle.visible) return;
     placeModelAtReticle('controller-select');
   });
@@ -271,14 +280,21 @@ xrHands.forEach((hand, index) => {
   hand.add(createHandPointer(index === 0 ? 0x38bdf8 : 0xa78bfa));
   hand.addEventListener('connected', (event) => {
     hand.userData.connected = true;
+    hand.userData.handedness = event.data?.handedness || '';
     addLog('xr.hand.connected', `${event.data?.handedness || `hand-${index + 1}`}; joints=${Boolean(event.data?.hand)}`);
   });
   hand.addEventListener('disconnected', () => {
     hand.userData.connected = false;
   });
-  hand.addEventListener('pinchstart', () => handleXrSelect(hand));
+  hand.addEventListener('pinchstart', () => {
+    if (handleXrSelect(hand)) return;
+    selectObjectFromSource(hand, `hand-${index}`);
+  });
   hand.addEventListener('selectstart', () => updateXrInteraction(hand, true));
-  hand.addEventListener('select', () => handleXrSelect(hand));
+  hand.addEventListener('select', () => {
+    if (handleXrSelect(hand)) return;
+    selectObjectFromSource(hand, `hand-${index}`);
+  });
   scene.add(hand);
 });
 xrInteractor.group.visible = false;
@@ -315,6 +331,8 @@ renderer.setAnimationLoop((timestamp, frame) => {
   updateMoveGizmo();
   updateWorldMovePanel();
   updateRealArMenu();
+  updateLeftPalmMenu();
+  updateSelectionBounds();
   updateArDebugHud();
   updateFailsafeDebugHud();
   updateXrVisibilityProbe();
@@ -376,17 +394,15 @@ async function startArSession() {
   arSessionRequestInFlight = true;
   enterArButton.disabled = true;
   enterArButton.textContent = 'AR 시작 중...';
-  arDebugHud.visible = true;
-  worldMovePanel.visible = true;
-  realArMenu.visible = true;
-  failsafeDebugHud.visible = true;
-  xrVisibilityProbe.visible = true;
-  reticleDebugPanel.visible = true;
-  cameraOverlay.visible = true;
-  updateWorldMovePanel();
-  updateArDebugHud(true);
-  updateFailsafeDebugHud(true);
-  addLog('xr.request.visible-debug', '3D menu and HUD enabled before XR session request');
+  arDebugHud.visible = false;
+  worldMovePanel.visible = false;
+  realArMenu.visible = false;
+  leftPalmMenu.visible = false;
+  failsafeDebugHud.visible = false;
+  xrVisibilityProbe.visible = false;
+  reticleDebugPanel.visible = false;
+  cameraOverlay.visible = false;
+  addLog('xr.request.clean-ui', 'debug HUDs hidden; waiting for palm menu gesture');
   logWorldUiSelfTest();
 
   const requestOptions = {
@@ -510,6 +526,7 @@ function moveModel(axis, direction) {
   updateModelPositionReadout();
   updateMoveGizmo();
   updateWorldMovePanel();
+  updateSelectionBounds();
   addLog('model.move', `${axis}${delta >= 0 ? '+' : ''}${delta.toFixed(3)} -> ${formatVector(modelRoot.position)}`);
 }
 
@@ -547,7 +564,8 @@ function setDesktopTestMode(enabled) {
   desktopTest.hand.visible = enabled;
   moveGizmo.visible = enabled || renderer.xr.isPresenting;
   worldMovePanel.visible = enabled || renderer.xr.isPresenting;
-  realArMenu.visible = renderer.xr.isPresenting;
+  realArMenu.visible = false;
+  leftPalmMenu.visible = false;
   arDebugHud.visible = enabled || renderer.xr.isPresenting;
   failsafeDebugHud.visible = enabled || renderer.xr.isPresenting;
   xrVisibilityProbe.visible = enabled || renderer.xr.isPresenting;
@@ -598,6 +616,7 @@ function installDebugApi() {
       viewerPoseCount: xrDiagnostics.viewerPoseCount,
       worldMovePanelVisible: worldMovePanel.visible,
       realArMenuVisible: realArMenu.visible,
+      leftPalmMenuVisible: leftPalmMenu.visible,
       arDebugHudVisible: arDebugHud.visible,
       failsafeDebugHudVisible: failsafeDebugHud.visible,
       xrVisibilityProbeVisible: xrVisibilityProbe.visible,
@@ -609,6 +628,7 @@ function installDebugApi() {
       controls: [
         ...(worldMovePanel.userData.controls || []),
         ...(realArMenu.userData.controls || []),
+        ...(leftPalmMenu.userData.controls || []),
       ].map((control) => control.userData.label),
     }),
   };
@@ -1127,6 +1147,7 @@ function resetModelPose() {
   updateModelPositionReadout();
   updateMoveGizmo();
   updateWorldMovePanel();
+  updateSelectionBounds();
   addLog('model.reset', formatVector(modelRoot.position));
 }
 
@@ -1137,7 +1158,82 @@ function placeModelAtReticle(reason) {
   updateModelPositionReadout();
   updateMoveGizmo();
   updateWorldMovePanel();
+  updateSelectionBounds();
   addLog('model.place.reticle', `${reason}; ${formatVector(modelRoot.position)}`);
+}
+
+function selectObject(object, reason) {
+  selectedObject = object;
+  selectionBounds.visible = Boolean(object);
+  updateSelectionBounds();
+  addLog('object.select', `${reason}; selected=${Boolean(object)}`);
+}
+
+function selectObjectFromSource(source, reason) {
+  if (!modelContent.children.length) return false;
+  setRaycasterFromXrSource(source);
+  const hits = xrInteractor.raycaster.intersectObject(modelRoot, true)
+    .filter((hit) => !hit.object.userData?.isWorldControl);
+  if (!hits.length) {
+    addLog('object.select.miss', reason);
+    return false;
+  }
+  selectObject(modelRoot, reason);
+  return true;
+}
+
+function createSelectionBounds() {
+  const group = new THREE.Group();
+  group.userData.edges = [];
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xfacc15,
+    transparent: true,
+    opacity: 0.95,
+    depthTest: false,
+  });
+  for (let index = 0; index < 12; index += 1) {
+    const edge = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 1, 10), material);
+    edge.renderOrder = 70;
+    group.userData.edges.push(edge);
+    group.add(edge);
+  }
+  return group;
+}
+
+function updateSelectionBounds() {
+  if (!selectedObject || !selectionBounds.visible) return;
+  const box = new THREE.Box3().setFromObject(modelContent);
+  if (box.isEmpty()) return;
+  box.expandByScalar(0.035);
+  const min = box.min;
+  const max = box.max;
+  const corners = [
+    new THREE.Vector3(min.x, min.y, min.z),
+    new THREE.Vector3(max.x, min.y, min.z),
+    new THREE.Vector3(max.x, max.y, min.z),
+    new THREE.Vector3(min.x, max.y, min.z),
+    new THREE.Vector3(min.x, min.y, max.z),
+    new THREE.Vector3(max.x, min.y, max.z),
+    new THREE.Vector3(max.x, max.y, max.z),
+    new THREE.Vector3(min.x, max.y, max.z),
+  ];
+  const pairs = [
+    [0, 1], [1, 2], [2, 3], [3, 0],
+    [4, 5], [5, 6], [6, 7], [7, 4],
+    [0, 4], [1, 5], [2, 6], [3, 7],
+  ];
+  pairs.forEach(([a, b], index) => {
+    placeCylinderBetween(selectionBounds.userData.edges[index], corners[a], corners[b]);
+  });
+}
+
+function placeCylinderBetween(cylinder, start, end) {
+  const midpoint = start.clone().add(end).multiplyScalar(0.5);
+  const direction = end.clone().sub(start);
+  const length = direction.length();
+  cylinder.position.copy(midpoint);
+  cylinder.scale.set(1, Math.max(length, 0.001), 1);
+  cylinder.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
 }
 
 function createMoveGizmo() {
@@ -1264,6 +1360,60 @@ function updateRealArMenu(force = false) {
   }
 }
 
+function updateLeftPalmMenu() {
+  if (!renderer.xr.isPresenting) {
+    leftPalmMenu.visible = false;
+    return;
+  }
+  if (!selectedObject) {
+    leftPalmMenu.visible = false;
+    return;
+  }
+  const leftHand = xrHands.find((hand) => hand.userData.connected && hand.userData.handedness === 'left') || xrHands[0];
+  if (!leftHand?.userData.connected) {
+    leftPalmMenu.visible = false;
+    return;
+  }
+
+  const wrist = getHandJoint(leftHand, 'wrist');
+  const indexBase = getHandJoint(leftHand, 'index-finger-metacarpal');
+  const pinkyBase = getHandJoint(leftHand, 'pinky-finger-metacarpal');
+  if (!wrist?.visible || !indexBase?.visible || !pinkyBase?.visible) {
+    leftPalmMenu.visible = false;
+    return;
+  }
+
+  const wristPos = new THREE.Vector3();
+  const indexPos = new THREE.Vector3();
+  const pinkyPos = new THREE.Vector3();
+  wrist.getWorldPosition(wristPos);
+  indexBase.getWorldPosition(indexPos);
+  pinkyBase.getWorldPosition(pinkyPos);
+
+  const acrossPalm = indexPos.clone().sub(pinkyPos).normalize();
+  const upPalm = indexPos.clone().add(pinkyPos).multiplyScalar(0.5).sub(wristPos).normalize();
+  const palmNormal = new THREE.Vector3().crossVectors(acrossPalm, upPalm).normalize();
+  const cameraPosition = latestViewerPose.available ? latestViewerPose.position.clone() : new THREE.Vector3();
+  if (!latestViewerPose.available) camera.getWorldPosition(cameraPosition);
+  const toCamera = cameraPosition.sub(wristPos).normalize();
+  const palmFacingCamera = Math.abs(palmNormal.dot(toCamera)) > 0.42;
+
+  leftPalmMenu.visible = palmFacingCamera;
+  if (!leftPalmMenu.visible) return;
+
+  leftPalmMenu.position.copy(wristPos)
+    .add(acrossPalm.multiplyScalar(0.16))
+    .add(upPalm.multiplyScalar(0.04));
+  leftPalmMenu.quaternion.copy(latestViewerPose.available ? latestViewerPose.quaternion : camera.quaternion);
+  leftPalmMenu.scale.setScalar(0.45);
+  leftPalmMenu.frustumCulled = false;
+  updateTextSprite(leftPalmMenu.userData.positionLabel, selectedObject ? formatVector(modelRoot.position) : 'object not selected');
+}
+
+function getHandJoint(hand, name) {
+  return hand.joints?.[name] || hand.joints?.get?.(name);
+}
+
 function createXrInteractor() {
   const group = new THREE.Group();
   const raycaster = new THREE.Raycaster();
@@ -1318,7 +1468,7 @@ function createHandPointer(color) {
 }
 
 function updateXrInteractor() {
-  if (!renderer.xr.isPresenting || !worldMovePanel.visible) return;
+  if (!renderer.xr.isPresenting) return;
   const sources = [...xrHands, ...xrControllers];
   let hovered = null;
   for (const source of sources) {
@@ -1347,7 +1497,6 @@ function handleXrSelect(source) {
 }
 
 function getWorldControlIntersection(source) {
-  if (!worldMovePanel.visible) return null;
   if (!source.userData.connected) return null;
   setRaycasterFromXrSource(source);
   return intersectWorldControls(xrInteractor.raycaster);
@@ -1357,6 +1506,7 @@ function intersectWorldControls(raycaster) {
   const controls = [
     ...(worldMovePanel.visible ? worldMovePanel.userData.controls || [] : []),
     ...(realArMenu.visible ? realArMenu.userData.controls || [] : []),
+    ...(leftPalmMenu.visible ? leftPalmMenu.userData.controls || [] : []),
   ];
   if (!controls.length) return null;
   const hits = raycaster.intersectObjects(controls, false);
