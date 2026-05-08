@@ -6,6 +6,7 @@ const MODEL_URL = './assets/2_ST_respirator_SET.glb';
 
 const canvas = document.querySelector('#scene');
 const notice = document.querySelector('#notice');
+const arButtonHost = document.querySelector('#arButtonHost');
 const scaleSlider = document.querySelector('#modelScale');
 const scaleValue = document.querySelector('#scaleValue');
 const resetModelButton = document.querySelector('#resetModel');
@@ -62,7 +63,23 @@ const arButton = ARButton.createButton(renderer, {
   optionalFeatures: ['local-floor', 'dom-overlay'],
   domOverlay: { root: document.body },
 });
-document.body.appendChild(arButton);
+arButton.textContent = arButton.textContent === 'START AR' ? 'Enter AR' : arButton.textContent;
+Object.assign(arButton.style, {
+  position: 'static',
+  width: '100%',
+  height: 'auto',
+  minHeight: '3rem',
+  margin: '0',
+  padding: '0.85rem 1rem',
+  borderRadius: '0.75rem',
+  background: '#22c55e',
+  color: '#04130a',
+  fontWeight: '800',
+  letterSpacing: '0',
+  textAlign: 'center',
+  zIndex: 'auto',
+});
+arButtonHost.appendChild(arButton);
 
 renderer.xr.addEventListener('sessionstart', () => {
   notice.textContent = 'AR 세션이 시작되었습니다. 바닥/테이블을 비춘 뒤 터치하면 모델을 배치할 수 있습니다.';
