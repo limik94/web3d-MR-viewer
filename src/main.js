@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 
 const MODEL_URL = './assets/2_ST_respirator_SET.glb';
-const APP_BUILD = 'ar-session-fallback-9';
+const APP_BUILD = 'ar-click-layer-request-10';
 
 const canvas = document.querySelector('#scene');
 const notice = document.querySelector('#notice');
@@ -437,22 +437,15 @@ async function startArSession() {
 async function requestArSessionWithFallbacks() {
   const attempts = [
     {
-      label: 'full-hand-dom',
+      label: 'hand-hit-test',
       options: {
-        optionalFeatures: ['hit-test', 'local-floor', 'bounded-floor', 'dom-overlay', 'hand-tracking'],
-        domOverlay: { root: document.body },
-      },
-    },
-    {
-      label: 'no-dom-overlay',
-      options: {
-        optionalFeatures: ['hit-test', 'local-floor', 'bounded-floor', 'hand-tracking'],
+        optionalFeatures: ['hit-test', 'hand-tracking', 'local-floor'],
       },
     },
     {
       label: 'no-hand-tracking',
       options: {
-        optionalFeatures: ['hit-test', 'local-floor', 'bounded-floor'],
+        optionalFeatures: ['hit-test', 'local-floor'],
       },
     },
     {
@@ -466,7 +459,7 @@ async function requestArSessionWithFallbacks() {
     const options = cloneXrRequestOptions(attempt.options);
     addLog('xr.request.try', `${attempt.label}; ${JSON.stringify({
       optionalFeatures: options.optionalFeatures || [],
-      hasDomOverlayRoot: Boolean(options.domOverlay?.root),
+      domOverlay: Boolean(options.domOverlay),
     })}`);
     try {
       const session = await navigator.xr.requestSession('immersive-ar', options);

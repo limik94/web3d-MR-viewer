@@ -143,6 +143,11 @@
         });
         window.addEventListener('DOMContentLoaded', function () {
           window.__MRLog('page.domcontentloaded', 'DOM is ready');
+          document.addEventListener('click', function (event) {
+            var button = event.target && event.target.closest ? event.target.closest('button') : null;
+            if (!button) return;
+            window.__MRLog('page.button.click', button.id || button.textContent.trim() || 'button');
+          }, true);
           const arButton = document.querySelector('#enterAr');
           const exitButton = document.querySelector('#exitAr');
           if (arButton) {
@@ -165,6 +170,6 @@
         });
       })();
     </script>
-    <script type="module" src="./src/main.js?v=ar-session-fallback-9"></script>
+    <script type="module" src="./src/main.js?v=ar-click-layer-request-10"></script>
   </body>
 </html>
