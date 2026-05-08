@@ -17,11 +17,45 @@ const qrCanvas = document.querySelector('#qrCanvas');
 const qrText = document.querySelector('#qrText');
 const qrImageCoords = document.querySelector('#qrImageCoords');
 const qrWorldCoords = document.querySelector('#qrWorldCoords');
+const debugLog = document.querySelector('#debugLog');
+const clearLogsButton = document.querySelector('#clearLogs');
+
+const originalConsole = {
+  error: console.error.bind(console),
+  warn: console.warn.bind(console),
+  log: console.log.bind(console),
+};
+const logLines = [];
+const maxLogLines = 120;
+
+console.error = (...args) => {
+  originalConsole.error(...args);
+  addLog('console.error', args.map(formatLogValue).join(' '));
+};
+console.warn = (...args) => {
+  originalConsole.warn(...args);
+  addLog('console.warn', args.map(formatLogValue).join(' '));
+};
+
+window.addEventListener('error', (event) => {
+  addLog('window.error', `${event.message} (${event.filename}:${event.lineno}:${event.colno})`);
+});
+window.addEventListener('unhandledrejection', (event) => {
+  addLog('promise.reject', formatLogValue(event.reason));
+});
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 30);
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+let renderer = null;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  addLog('webgl', 'renderer created');
+} catch (error) {
+  addLog('webgl.error', formatError(error));
+  notice.textContent = 'WebGL 렌더러 초기화에 실패했습니다. 진단 로그를 확인해주세요.';
+  throw error;
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
@@ -56,10 +90,20 @@ let qrStream = null;
 let qrDetector = null;
 let qrLoopId = null;
 let lastQrResult = null;
+let arSessionRequestInFlight = false;
+let arButtonListenerAttached = false;
 
+clearLogsButton.addEventListener('click', () => {
+  logLines.length = 0;
+  renderLogs();
+  addLog('log', 'cleared');
+});
+
+logEnvironment();
 initArButton();
 
 renderer.xr.addEventListener('sessionstart', () => {
+  addLog('xr.sessionstart', 'renderer reported session start');
   notice.textContent = 'AR 세션이 시작되었습니다. 바닥/테이블을 비춘 뒤 터치하면 모델을 배치할 수 있습니다.';
   enterArButton.textContent = 'AR 실행 중';
   enterArButton.disabled = true;
@@ -67,6 +111,7 @@ renderer.xr.addEventListener('sessionstart', () => {
 });
 
 renderer.xr.addEventListener('sessionend', () => {
+  addLog('xr.sessionend', 'renderer reported session end');
   notice.textContent = 'AR 세션이 종료되었습니다.';
   enterArButton.textContent = 'AR 시작';
   enterArButton.disabled = false;
@@ -98,47 +143,87 @@ renderer.setAnimationLoop((timestamp, frame) => {
 });
 
 async function initArButton() {
+  addLog('xr.init', 'checking WebXR availability');
+  attachArButtonListener();
   if (!navigator.xr) {
     enterArButton.disabled = true;
     enterArButton.textContent = 'AR 미지원';
     notice.textContent = '이 브라우저에서 WebXR AR을 찾을 수 없습니다. Meta Quest Browser의 HTTPS 주소에서 다시 열어주세요.';
+    addLog('xr.init.fail', 'navigator.xr is missing');
     return;
   }
 
   try {
+    addLog('xr.support', 'calling isSessionSupported("immersive-ar")');
     const supported = await navigator.xr.isSessionSupported('immersive-ar');
+    addLog('xr.support.result', `immersive-ar=${supported}`);
     if (!supported) {
       enterArButton.disabled = true;
       enterArButton.textContent = 'AR 미지원';
       notice.textContent = '현재 브라우저가 immersive-ar 세션을 지원하지 않습니다. Quest Browser에서 WebXR 설정을 확인해주세요.';
+      addLog('xr.init.fail', 'immersive-ar is not supported');
       return;
     }
     enterArButton.textContent = 'AR 시작';
   } catch (error) {
-    console.warn('WebXR support check failed:', error);
+    addLog('xr.support.error', formatError(error));
     enterArButton.textContent = 'AR 시작';
   }
 
+  addLog('xr.init.ok', 'AR button is ready');
+}
+
+function attachArButtonListener() {
+  if (arButtonListenerAttached) return;
   enterArButton.addEventListener('click', startArSession);
+  arButtonListenerAttached = true;
+  addLog('xr.button.listener', 'click listener attached');
 }
 
 async function startArSession() {
-  if (!navigator.xr) return;
+  addLog('xr.button', 'AR start button clicked');
+  if (arSessionRequestInFlight) {
+    addLog('xr.button.skip', 'session request is already in flight');
+    return;
+  }
+  if (!navigator.xr) {
+    addLog('xr.request.abort', 'navigator.xr is missing at click time');
+    return;
+  }
+  arSessionRequestInFlight = true;
   enterArButton.disabled = true;
   enterArButton.textContent = 'AR 시작 중...';
 
+  const requestOptions = {
+    requiredFeatures: ['hit-test'],
+    optionalFeatures: ['local-floor', 'dom-overlay'],
+    domOverlay: { root: document.body },
+  };
+  const waitingLogId = window.setTimeout(() => {
+    addLog('xr.request.waiting', 'requestSession has not resolved after 8 seconds. Check for a hidden permission prompt or blocked immersive AR.');
+  }, 8000);
+
   try {
-    const session = await navigator.xr.requestSession('immersive-ar', {
-      requiredFeatures: ['hit-test'],
-      optionalFeatures: ['local-floor', 'dom-overlay'],
-      domOverlay: { root: document.body },
-    });
+    addLog('xr.request', `requestSession immersive-ar ${JSON.stringify({
+      requiredFeatures: requestOptions.requiredFeatures,
+      optionalFeatures: requestOptions.optionalFeatures,
+      hasDomOverlayRoot: Boolean(requestOptions.domOverlay?.root),
+    })}`);
+    const session = await navigator.xr.requestSession('immersive-ar', requestOptions);
+    addLog('xr.request.ok', `session granted; mode=${session.mode || 'unknown'}`);
+    session.addEventListener('end', () => addLog('xr.native.end', 'XRSession end event'));
+    session.addEventListener('visibilitychange', () => addLog('xr.visibility', session.visibilityState || 'unknown'));
+    addLog('xr.renderer.setSession', 'calling renderer.xr.setSession');
     await renderer.xr.setSession(session);
+    addLog('xr.renderer.ok', 'renderer session attached');
   } catch (error) {
-    console.error('AR session failed:', error);
+    addLog('xr.request.error', formatError(error));
     enterArButton.disabled = false;
     enterArButton.textContent = 'AR 시작';
-    notice.textContent = 'AR 세션을 시작하지 못했습니다. Quest Browser 권한, WebXR 지원, HTTPS 주소를 확인해주세요.';
+    notice.textContent = `AR 세션을 시작하지 못했습니다: ${getErrorName(error)}. 진단 로그를 확인해주세요.`;
+  } finally {
+    window.clearTimeout(waitingLogId);
+    arSessionRequestInFlight = false;
   }
 }
 
@@ -166,14 +251,16 @@ function createFallbackModel() {
 async function loadRespiratorModel() {
   const loader = new GLTFLoader();
   try {
+    addLog('model.load', MODEL_URL);
     const gltf = await loader.loadAsync(MODEL_URL);
     modelRoot.clear();
     const model = gltf.scene;
     centerModel(model);
     modelRoot.add(model);
     notice.innerHTML = `모델을 불러왔습니다: <strong>${MODEL_URL}</strong>`;
+    addLog('model.load.ok', MODEL_URL);
   } catch (error) {
-    console.warn('GLB load failed:', error);
+    addLog('model.load.error', formatError(error));
     notice.innerHTML = `GLB 파일을 찾을 수 없어 대체 모델을 표시합니다. 배포 전 <code>${MODEL_URL}</code>에 파일을 추가하세요.`;
   }
 }
@@ -197,10 +284,17 @@ function updateReticle(frame) {
   const referenceSpace = renderer.xr.getReferenceSpace();
 
   if (!hitTestSourceRequested) {
+    addLog('xr.hittest', 'requesting viewer reference space');
     session.requestReferenceSpace('viewer').then((viewerSpace) => {
+      addLog('xr.hittest', 'requesting hit test source');
       session.requestHitTestSource({ space: viewerSpace }).then((source) => {
         hitTestSource = source;
+        addLog('xr.hittest.ok', 'hit test source ready');
+      }).catch((error) => {
+        addLog('xr.hittest.error', formatError(error));
       });
+    }).catch((error) => {
+      addLog('xr.refspace.error', formatError(error));
     });
     hitTestSourceRequested = true;
   }
@@ -218,6 +312,7 @@ function updateReticle(frame) {
 
 async function startQrScanner() {
   try {
+    addLog('qr.camera', 'requesting environment camera');
     qrStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false,
@@ -230,11 +325,14 @@ async function startQrScanner() {
 
     if ('BarcodeDetector' in window) {
       qrDetector = new BarcodeDetector({ formats: ['qr_code'] });
+      addLog('qr.detector', 'BarcodeDetector enabled');
+    } else {
+      addLog('qr.detector', 'using jsQR fallback');
     }
     scanQrFrame();
   } catch (error) {
     qrText.textContent = '카메라를 시작할 수 없습니다. Quest Browser 권한과 HTTPS 배포 주소를 확인하세요.';
-    console.error('QR camera failed:', error);
+    addLog('qr.camera.error', formatError(error));
   }
 }
 
@@ -324,4 +422,56 @@ function onResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  addLog('resize', `${window.innerWidth}x${window.innerHeight}`);
+}
+
+function logEnvironment() {
+  addLog('boot', `app loaded ${new Date().toISOString()}`);
+  addLog('url', window.location.href);
+  addLog('context', `secure=${window.isSecureContext}; protocol=${window.location.protocol}`);
+  addLog('ua', navigator.userAgent);
+  addLog('screen', `${window.innerWidth}x${window.innerHeight}; dpr=${window.devicePixelRatio}`);
+  addLog('features', [
+    `navigator.xr=${Boolean(navigator.xr)}`,
+    `mediaDevices=${Boolean(navigator.mediaDevices?.getUserMedia)}`,
+    `BarcodeDetector=${'BarcodeDetector' in window}`,
+    `jsQR=${Boolean(window.jsQR)}`,
+    `webgl=${Boolean(canvas.getContext('webgl2') || canvas.getContext('webgl'))}`,
+  ].join('; '));
+}
+
+function addLog(label, message) {
+  const time = new Date().toLocaleTimeString('ko-KR', { hour12: false });
+  logLines.push(`[${time}] ${label}: ${message}`);
+  if (logLines.length > maxLogLines) logLines.splice(0, logLines.length - maxLogLines);
+  renderLogs();
+}
+
+function renderLogs() {
+  debugLog.textContent = logLines.join('\n');
+  debugLog.scrollTop = debugLog.scrollHeight;
+}
+
+function formatError(error) {
+  if (!error) return 'unknown error';
+  const name = getErrorName(error);
+  const message = error.message || String(error);
+  const details = [];
+  if (error.code) details.push(`code=${error.code}`);
+  if (error.name) details.push(`name=${error.name}`);
+  return `${name}: ${message}${details.length ? ` (${details.join(', ')})` : ''}`;
+}
+
+function getErrorName(error) {
+  return error?.name || error?.constructor?.name || 'Error';
+}
+
+function formatLogValue(value) {
+  if (value instanceof Error) return formatError(value);
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }

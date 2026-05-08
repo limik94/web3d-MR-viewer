@@ -50,6 +50,14 @@
           <div><dt>이미지 좌표</dt><dd id="qrImageCoords">-</dd></div>
           <div><dt>WebXR 좌표</dt><dd id="qrWorldCoords">-</dd></div>
         </dl>
+
+        <section class="diagnostics" aria-label="Diagnostics">
+          <div class="diagnostics-header">
+            <h2>진단 로그</h2>
+            <button id="clearLogs" type="button">지우기</button>
+          </div>
+          <pre id="debugLog" aria-live="polite"></pre>
+        </section>
       </section>
 
       <canvas id="scene" aria-label="WebGL MR scene"></canvas>
